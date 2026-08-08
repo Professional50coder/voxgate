@@ -1,0 +1,18 @@
+{
+  "synthetic": true,
+  "countries": {
+    "AE": {"name": "United Arab Emirates", "fatf": "clean"},
+    "IN": {"name": "India", "fatf": "clean"},
+    "GB": {"name": "United Kingdom", "fatf": "clean"},
+    "US": {"name": "United States", "fatf": "clean"},
+    "SG": {"name": "Singapore", "fatf": "clean"},
+    "DE": {"name": "Germany", "fatf": "clean"},
+    "YE": {"name": "Yemen", "fatf": "grey"},
+    "RU": {"name": "Russia", "fatf": "grey"},
+    "PK": {"name": "Pakistan", "fatf": "grey"},
+    "SO": {"name": "Somalia", "fatf": "grey"},
+    "SY": {"name": "Syria", "fatf": "black"},
+    "KP": {"name": "North Korea", "fatf": "black"},
+    "IR": {"name": "Iran", "fatf": "black"}
+  }
+}

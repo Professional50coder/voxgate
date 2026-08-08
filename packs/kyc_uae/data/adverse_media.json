@@ -1,0 +1,8 @@
+{
+  "synthetic": true,
+  "entries": [
+    {"name": "Mohammed Al Rashid", "headline": "Businessman named in leaked offshore-finance records", "severity": 0.65},
+    {"name": "Dmitri Volkov", "headline": "Executive linked to shell company fraud investigation", "severity": 0.55},
+    {"name": "Anwar Siddiqui", "headline": "Trader fined by regulator for disclosure breach", "severity": 0.4}
+  ]
+}

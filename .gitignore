@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+build/
+dist/
+
+# Runtime secrets — never commit
+.env
+.env.*
+!.env.example
+api.txt
+github.txt
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/traces/
+
+# Local dev artifacts / session traces
+traces/
+.superpowers/

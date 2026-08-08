@@ -1,0 +1,23 @@
+{
+  "synthetic": true,
+  "entries": [
+    {"id": "UN-001", "name": "Mohammed Al Rashid", "list": "UN Consolidated",
+     "dob": "1975-03-02", "nationality": "SY", "aliases": ["Abu Khalid"]},
+    {"id": "UAE-004", "name": "Khalid Bin Mahfouz", "list": "UAE Local Terrorist List",
+     "dob": "1981-07-14", "nationality": "YE", "aliases": []},
+    {"id": "UAE-009", "name": "Numan Aziz", "list": "UAE Local Terrorist List",
+     "dob": "1988-02-20", "nationality": "YE", "aliases": ["Abu Numan"]},
+    {"id": "OFAC-77", "name": "Dmitri Volkov", "list": "OFAC SDN",
+     "dob": "1969-11-20", "nationality": "RU", "aliases": []},
+    {"id": "OFAC-12", "name": "Wojciech Kowalski", "list": "OFAC SDN",
+     "dob": "1965-09-01", "nationality": "RU", "aliases": []},
+    {"id": "UN-002", "name": "Nnamdi Okeke", "list": "UN Consolidated",
+     "dob": "1970-06-10", "nationality": "SO", "aliases": ["Chief Okeke"]},
+    {"id": "UN-003", "name": "Jozef Nowak", "list": "UN Consolidated",
+     "dob": "1978-12-05", "nationality": "PK", "aliases": []},
+    {"id": "UN-005", "name": "Aliyu Bello", "list": "UN Consolidated",
+     "dob": "1972-08-15", "nationality": "KP", "aliases": []},
+    {"id": "OFAC-20", "name": "Magnus Fjeld", "list": "OFAC SDN",
+     "dob": "1980-01-22", "nationality": "IR", "aliases": ["M. Fjeld"]}
+  ]
+}

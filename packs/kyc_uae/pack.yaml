@@ -1,0 +1,4 @@
+pack_id: kyc-uae
+display_name: UAE Fintech KYC Onboarding
+gate_role: Compliance Officer
+thresholds: {low: 0.30, high: 0.65}

@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoxGate — Compliance Ops Console</title>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+<div class="bg-ambient" aria-hidden="true"></div>
+<div id="voxgate-app" class="app-shell" data-app="voxgate">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">VoxGate</span>
+      <span class="brand-tag">Compliance Ops Console</span>
+    </div>
+
+    <div class="kpi-row" id="kpi-row" aria-label="Live case metrics"></div>
+
+    <div class="header-actions">
+      <select id="pack-select" class="select-input" aria-label="Pack for new case"></select>
+      <button id="btn-new-case" class="btn btn-primary" type="button" disabled>
+        <span>New case</span>
+      </button>
+      <button id="btn-seed-demo" class="btn btn-ghost" type="button">Seed demo data</button>
+      <div class="conn-badge" id="conn-badge">
+        <span class="dot"></span><span class="conn-label">Idle</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="attention-banner" id="attention-banner" role="alert">
+    <span class="attention-dot" aria-hidden="true"></span>
+    <span id="attention-text"></span>
+    <button class="btn btn-sm btn-ghost" id="attention-view">View case</button>
+    <button class="btn-icon" id="attention-dismiss" aria-label="Dismiss">&times;</button>
+  </div>
+
+  <main class="layout">
+
+    <section class="panel glass board-panel">
+      <div class="panel-head">
+        <h2>Case board</h2>
+        <div class="board-meta" id="board-meta">—</div>
+      </div>
+      <div class="case-list" id="case-list">
+        <div class="empty-state" id="board-empty">
+          <div class="empty-icon" aria-hidden="true">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+              <rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 4v-1M16 4v-1"/>
+            </svg>
+          </div>
+          <h3>No cases yet</h3>
+          <p>Start a case against a compliance pack, or seed realistic demo data to see the console come alive.</p>
+          <div class="empty-actions">
+            <button class="btn btn-primary" id="btn-new-case-empty" type="button" disabled>New case</button>
+            <button class="btn btn-ghost" id="btn-seed-demo-empty" type="button">Seed demo data</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel glass analytics-panel">
+      <div class="panel-head"><h2>Analytics</h2></div>
+      <div class="analytics-grid">
+
+        <div class="chart-card">
+          <div class="chart-title">Risk band distribution</div>
+          <div id="chart-riskband"><div class="chart-empty">No scored cases yet.</div></div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-title">Status funnel</div>
+          <div id="chart-funnel"><div class="chart-empty">No cases yet.</div></div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-title">Top risk features</div>
+          <div id="chart-topfeatures"><div class="chart-empty">No contribution data yet.</div></div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-title">Check outcomes</div>
+          <div id="chart-checks"><div class="chart-empty">No check results yet.</div></div>
+        </div>
+
+      </div>
+    </section>
+
+    <section class="panel glass monitor-panel">
+      <div class="panel-head"><h2>Monitoring</h2></div>
+      <div class="monitor-grid">
+        <div class="monitor-tile">
+          <div class="monitor-row"><span>WebSocket</span><b id="mon-ws-state">idle</b></div>
+          <div class="monitor-row"><span>Poll latency</span><b id="mon-poll-latency">—</b></div>
+          <div class="monitor-row"><span>Open case</span><b id="mon-open-case">none</b></div>
+        </div>
+        <div class="monitor-tile">
+          <div class="monitor-row"><span>Events / min</span><b id="mon-events-rate">0</b></div>
+          <svg id="sparkline" viewBox="0 0 240 44" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="sparkGradient" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#4fa8ff"/>
+                <stop offset="50%" stop-color="#a06bff"/>
+                <stop offset="100%" stop-color="#ff6fd8"/>
+              </linearGradient>
+            </defs>
+            <polygon class="spark-fill" points=""></polygon>
+            <polyline class="spark-line" points=""></polyline>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <aside class="drawer" id="case-drawer" aria-hidden="true">
+    <div class="drawer-scrim" id="drawer-scrim"></div>
+    <div class="drawer-panel" role="dialog" aria-modal="true" aria-label="Case detail">
+      <div class="drawer-head">
+        <div>
+          <div class="drawer-caseid" id="drawer-caseid">—</div>
+          <div class="drawer-chips" id="drawer-chips"></div>
+        </div>
+        <button class="btn-icon" id="drawer-close" aria-label="Close case detail">&times;</button>
+      </div>
+      <nav class="drawer-tabs" id="drawer-tabs">
+        <button class="drawer-tab active" data-tab="overview" type="button">Overview</button>
+        <button class="drawer-tab" data-tab="interview" type="button">Interview</button>
+        <button class="drawer-tab" data-tab="review" type="button">Reviewer gate</button>
+        <button class="drawer-tab" data-tab="pipeline" type="button">Pipeline</button>
+        <button class="drawer-tab" data-tab="events" type="button">Events</button>
+      </nav>
+      <div class="drawer-body" id="drawer-body"></div>
+    </div>
+  </aside>
+
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
+</div>
+
+<script src="/static/dashboard.js"></script>
+</body>
+</html>

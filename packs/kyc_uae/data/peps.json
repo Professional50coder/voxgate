@@ -1,0 +1,15 @@
+{
+  "synthetic": true,
+  "entries": [
+    {"id": "PEP-001", "name": "Sipho Zulu", "list": "PEP",
+     "dob": "1965-05-11", "nationality": "AE", "aliases": []},
+    {"id": "PEP-002", "name": "Karim Osei", "list": "PEP",
+     "dob": "1958-03-22", "nationality": "RU", "aliases": []},
+    {"id": "PEP-003", "name": "Idris Junaid", "list": "PEP",
+     "dob": "1972-09-30", "nationality": "SG", "aliases": []},
+    {"id": "PEP-004", "name": "Zubair Hafeez", "list": "PEP",
+     "dob": "1968-11-02", "nationality": "PK", "aliases": []},
+    {"id": "PEP-005", "name": "Karam Nassif", "list": "PEP",
+     "dob": "1975-07-19", "nationality": "RU", "aliases": []}
+  ]
+}

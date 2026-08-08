@@ -1,0 +1,179 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 1180" width="2048" height="1180" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="11" markerHeight="11" orient="auto">
+      <path d="M0 0 L12 6 L0 12 z" fill="#536579"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="11" markerHeight="11" orient="auto">
+      <path d="M0 0 L12 6 L0 12 z" fill="#A32E27"/>
+    </marker>
+  </defs>
+
+  <!-- canvas -->
+  <rect x="0" y="0" width="2048" height="1180" fill="#FBFCFD"/>
+
+  <!-- ============ PLANE 1 · UNTRUSTED ============ -->
+  <g>
+    <rect x="28" y="74" width="500" height="562" rx="10" fill="#F1F4F7" stroke="#B6C2CE" stroke-width="2"/>
+    <text x="278" y="120" text-anchor="middle" font-size="30" letter-spacing="4" font-weight="600" fill="#46566B">UNTRUSTED PLANE</text>
+    <text x="278" y="150" text-anchor="middle" font-size="22" letter-spacing="4" font-weight="600" fill="#7E8A99">AGENT &amp; VOICE SIDE</text>
+
+    <g font-size="24" fill="#46566B" font-weight="600">
+      <text x="54" y="228">voice runtime</text>
+      <text x="54" y="338">STT → LLM → TTS</text>
+      <text x="54" y="446">LLM context</text>
+      <text x="54" y="556">spoken answers · captions</text>
+    </g>
+    <g font-size="19" fill="#7E8A99" font-weight="400">
+      <text x="54" y="258">browser ⇄ WebSocket · pipecat protobuf</text>
+      <text x="54" y="368">Groq Whisper · Groq groq · Cartesia Sonic</text>
+      <text x="54" y="474">interview plan — one short question at a time</text>
+      <text x="54" y="582">free-form text — only the gate may canonicalize</text>
+    </g>
+
+    <rect x="50" y="190" width="456" height="92" rx="5" fill="#FFFFFF" stroke="#D5DCE3"/>
+    <rect x="50" y="296" width="456" height="92" rx="5" fill="#FFFFFF" stroke="#D5DCE3"/>
+    <rect x="50" y="402" width="456" height="92" rx="5" fill="#FFFFFF" stroke="#D5DCE3"/>
+    <rect x="50" y="508" width="456" height="92" rx="5" fill="#FFFFFF" stroke="#D5DCE3"/>
+    <text x="158" y="610" font-size="18" font-weight="600" letter-spacing="1" fill="#A32E27">ASSUME FULLY REPLACEABLE — the Groq / Cartesia stack is a swappable demo provider</text>
+  </g>
+
+  <!-- arrow : invoke -->
+  <line x1="532" y1="396" x2="580" y2="396" stroke="#536579" stroke-width="2.5"/>
+  <text x="556" y="376" text-anchor="middle" font-size="20" fill="#536579">invoke</text>
+  <text x="556" y="452" text-anchor="middle" font-size="17" fill="#7E8A99">raw audio</text>
+  <text x="556" y="474" text-anchor="middle" font-size="17" fill="#7E8A99">+ free text</text>
+
+  <!-- ============ PLANE 2 · THE GATE ============ -->
+  <g>
+    <rect x="588" y="74" width="430" height="562" rx="10" fill="#FBF6EE" stroke="#D9BC8A" stroke-width="2"/>
+    <text x="803" y="120" text-anchor="middle" font-size="30" font-weight="600" letter-spacing="6" fill="#8A6A37">AUTHORIZATION</text>
+    <text x="803" y="150" text-anchor="middle" font-size="22" letter-spacing="3" font-weight="600" fill="#A98A55">THE GATE</text>
+
+    <g font-size="24" fill="#23211B" font-weight="600">
+      <text x="612" y="228">schema validation</text>
+      <text x="612" y="338">interview budget</text>
+      <text x="612" y="446">pack lookup</text>
+      <text x="612" y="556">status gates</text>
+    </g>
+    <g font-size="18" fill="#6B5B34" font-weight="400">
+      <text x="612" y="258">Pydantic — canonical dumps only</text>
+      <text x="612" y="368">re-ask offending field · max 2 attempts</text>
+      <text x="612" y="476">unknown pack_id → 404 before a case exists</text>
+      <text x="612" y="586">resume from the right node — else 409</text>
+    </g>
+
+    <rect x="610" y="190" width="384" height="92" rx="5" fill="#FFFDF8" stroke="#E4CEA2"/>
+    <rect x="610" y="296" width="384" height="92" rx="5" fill="#FFFDF8" stroke="#E4CEA2"/>
+    <rect x="610" y="402" width="384" height="92" rx="5" fill="#FFFDF8" stroke="#E4CEA2"/>
+    <rect x="610" y="508" width="384" height="92" rx="5" fill="#FFFDF8" stroke="#E4CEA2"/>
+    <rect x="610" y="402" width="8" height="92" fill="#A32E27"/>
+    <rect x="610" y="508" width="8" height="92" fill="#A32E27"/>
+    <text x="678" y="584" font-size="18" font-weight="600" letter-spacing="1" fill="#B8863A">DENY WITHOUT CONSULTING THE MODEL</text>
+  </g>
+
+  <!-- TRUST BOUNDARY -->
+  <line x1="1036" y1="96" x2="1036" y2="568" stroke="#A32E27" stroke-width="2.5" stroke-dasharray="12 10"/>
+  <text transform="rotate(-90 1060 300)" x="1036" y="300" text-anchor="middle" font-size="22" font-weight="600" letter-spacing="2" fill="#A32E27">TRUST BOUNDARY</text>
+
+  <!-- arrow : admit / halt crosses the boundary -->
+  <line x1="1012" y1="396" x2="1078" y2="396" stroke="#A32E27" stroke-width="2.5" marker-end="url(#arrow-red)"/>
+  <text x="1044" y="376" text-anchor="middle" font-size="20" font-weight="600" fill="#A32E27">admit · halt</text>
+
+  <!-- ============ PLANE 3 · LANGGRAPH ENGINE ============ -->
+  <g>
+    <rect x="1090" y="74" width="470" height="562" rx="10" fill="#F0F7F3" stroke="#A6D0BC" stroke-width="2"/>
+    <text x="1325" y="120" text-anchor="middle" font-size="30" font-weight="600" letter-spacing="6" fill="#2F7255">LANGGRAPH ENGINE</text>
+    <text x="1325" y="150" text-anchor="middle" font-size="22" font-weight="600" letter-spacing="2" fill="#4F9E7C">PROTECTED DECISION STATE</text>
+
+    <g font-size="23" fill="#143A2A" font-weight="600">
+      <text x="1114" y="228">case state machine</text>
+      <text x="1114" y="338">scenario pack</text>
+      <text x="1114" y="446">explainable scorecard</text>
+      <text x="1114" y="556">checkpointed state</text>
+    </g>
+    <g font-size="18" fill="#3D6B56" font-weight="400">
+      <text x="1114" y="258">intake → interview ⏸ → checks → score → route</text>
+      <text x="1114" y="368">schema · checks · scoring · prompt · v1 pack: kyc-uae</text>
+      <text x="1114" y="476">additive log-odds · bands 0.30 / 0.65 · waterfall</text>
+      <text x="1114" y="586">MemorySaver / PostgresSaver · /recover after restart</text>
+    </g>
+
+    <rect x="1112" y="190" width="424" height="92" rx="5" fill="#FFFFFF" stroke="#A6D0BC"/>
+    <rect x="1112" y="296" width="424" height="92" rx="5" fill="#FFFFFF" stroke="#A6D0BC"/>
+    <rect x="1112" y="402" width="424" height="92" rx="5" fill="#FFFFFF" stroke="#A6D0BC"/>
+    <rect x="1112" y="508" width="424" height="92" rx="5" fill="#FFFFFF" stroke="#A6D0BC"/>
+    <text x="1278" y="620" font-size="18" font-weight="600" letter-spacing="1" fill="#2F7255">ONLY THIS PLANE WRITES THE CASE</text>
+  </g>
+
+  <!-- arrow : dispatch -->
+  <line x1="1562" y1="396" x2="1616" y2="396" stroke="#536579" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="1589" y="376" text-anchor="middle" font-size="20" font-weight="600" fill="#536579">dispatch</text>
+  <text x="1589" y="454" text-anchor="middle" font-size="17" fill="#46557A">canonical</text>
+  <text x="1589" y="476" text-anchor="middle" font-size="17" fill="#46557A">+ events</text>
+
+  <!-- ============ PLANE 4 · SURFACE ============ -->
+  <g>
+    <rect x="1630" y="74" width="390" height="562" rx="10" fill="#F4F6F8" stroke="#C6CFD9" stroke-width="2"/>
+    <text x="1825" y="120" text-anchor="middle" font-size="30" font-weight="600" letter-spacing="5" fill="#46566B">OPERATIONAL</text>
+    <text x="1825" y="150" text-anchor="middle" font-size="22" font-weight="600" letter-spacing="2" fill="#7E8A99">REVIEW · RECORD</text>
+
+    <g font-size="22" fill="#232F3A" font-weight="600">
+      <text x="1654" y="228">reviewer dashboard</text>
+      <text x="1654" y="338">REST + WS surface</text>
+      <text x="1654" y="446">compliance record</text>
+    </g>
+    <g font-size="18" fill="#5A6B7A" font-weight="400">
+      <text x="1654" y="258">case queue · waterfall · live WS captions</text>
+      <text x="1654" y="368">one API for voice · CLI · dashboard · automation</text>
+      <text x="1654" y="476">final decision + replayable audit trail</text>
+    </g>
+
+    <rect x="1652" y="190" width="344" height="92" rx="5" fill="#FFFFFF" stroke="#D4DBE2"/>
+    <rect x="1652" y="296" width="344" height="92" rx="5" fill="#FFFFFF" stroke="#D4DBE2"/>
+    <rect x="1652" y="402" width="344" height="92" rx="5" fill="#FFFFFF" stroke="#D4DBE2"/>
+    <text x="1736" y="566" font-size="18" font-weight="600" letter-spacing="1" fill="#5A6B7A">SEES A NORMAL API, NEVER THE CHAOS</text>
+  </g>
+
+  <!-- ============ BOTTOM CROSS-CUTTING LAYER ============ -->
+  <rect x="28" y="690" width="1994" height="276" rx="10" fill="#EFF6F8" stroke="#A3CBD5" stroke-width="2"/>
+  <text x="1025" y="734" text-anchor="middle" font-size="27" font-weight="600" letter-spacing="6" fill="#2F6271">CROSS-CUTTING</text>
+  <text x="1025" y="762" text-anchor="middle" font-size="20" font-weight="600" letter-spacing="3" fill="#4C8594">UNDERPINS EVERY PLANE · DEPENDS ON NONE</text>
+
+  <g font-size="22" fill="#1E3E47" font-weight="600">
+    <text x="58" y="868">case store + event bus</text>
+    <text x="548" y="868">audit trail</text>
+    <text x="1038" y="868">safety net</text>
+    <text x="1528" y="868">pack contract</text>
+  </g>
+  <g font-size="18" fill="#3D6B78" font-weight="400">
+    <text x="58" y="906">index + pub/sub for every live</text>
+    <text x="548" y="906">per-node seq · status_before→after</text>
+    <text x="1038" y="906">RetryPolicy(max 2) on checks</text>
+    <text x="1528" y="906">conformance suite per pack</text>
+    <text x="75" y="928">client — voice and dashboard</text>
+    <text x="548" y="928">· duration_ms — replayable</text>
+    <text x="1038" y="928">any crash → needs_attention</text>
+    <text x="1528" y="928">packs can't fudge the contract</text>
+  </g>
+
+  <rect x="58" y="796" width="470" height="96" rx="5" fill="#FFFFFF" stroke="#BDD2DA"/>
+  <rect x="528" y="796" width="470" height="96" rx="5" fill="#FFFFFF" stroke="#BDD2DA"/>
+  <rect x="1018" y="796" width="470" height="96" rx="5" fill="#FFFFFF" stroke="#BDD2DA"/>
+  <rect x="1508" y="796" width="470" height="96" rx="5" fill="#FFFFFF" stroke="#BDD2DA"/>
+
+  <!-- ============ LEGEND ============ -->
+  <g font-size="19" fill="#46566B">
+    <rect x="28" y="1012" width="16" height="16" rx="3" fill="#F1F4F7" stroke="#B6C2CE"/><text x="54" y="1026">untrusted client / agent side</text>
+    <rect x="300" y="1012" width="16" height="16" rx="3" fill="#FBF6EE" stroke="#D9BC8A"/><text x="326" y="1026">admit / halt (the gate)</text>
+    <rect x="572" y="1012" width="16" height="16" rx="3" fill="#F0F7F3" stroke="#A6D0BC"/><text x="598" y="1026">protected decision state</text>
+    <rect x="844" y="1012" width="16" height="16" rx="3" fill="#F4F6F8" stroke="#C6CFD9"/><text x="870" y="1026">operational surface</text>
+    <rect x="1116" y="1012" width="16" height="16" rx="3" fill="#EFF6F8" stroke="#A3CBD5"/><text x="1142" y="1026">cross-cutting guarantees</text>
+    <rect x="1560" y="1012" width="16" height="16" rx="3" fill="none" stroke="#A32E27" stroke-width="2"/><text x="1586" y="1026">trust boundary</text>
+  </g>
+  <g font-size="19" font-weight="600" fill="#A32E27">
+    <rect x="28" y="1057" width="16" height="16" rx="3" fill="#A32E27"/><text x="54" y="1071">deny-by-default enforcement point</text>
+  </g>
+
+  <!-- ============ METRICS FOOTER ============ -->
+  <text x="1025" y="1136" text-anchor="middle" font-size="20" fill="#8B98A8">Measured on this repo: `uv run pytest -q` → 109 passed · 1 skipped — zero keys, no network, 45 s · round-trips are ms-scale · the voice path's latency is the demo providers' (Groq · Cartesia), swapped for a self-hosted pipeline.</text>
+</svg>
