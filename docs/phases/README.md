@@ -28,5 +28,3 @@ Each phase doc follows the same structure: Purpose, What was/will be built, Publ
 - Per-phase reports (Phases 1–8 only): `.superpowers/sdd/2026-08-06-voxgate-core-platform/task-{1..8}-report.md` (Task 4's and Task 6's reports each include an appended fix-round report)
 - Design spec: `docs/superpowers/specs/2026-08-06-voxgate-design.md`
 - Source: `src/voxgate/**`, `packs/kyc_uae/**`, `tests/**`
-
-See also: [`.paul/PROJECT.md`](../../.paul/PROJECT.md), [`.paul/STATE.md`](../../.paul/STATE.md).

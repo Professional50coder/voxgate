@@ -4,7 +4,7 @@
 
 Hitansh Gopani · 8 August 2026
 
-[Design spec](docs/superpowers/specs/2026-08-06-voxgate-design.md) · [System design](docs/ARCHITECTURE.md) · [Per-phase build docs](docs/phases/README.md) · [Project notes](.paul/PROJECT.md) · [Live demo runbook](docs/demo/DEMO-RUNBOOK.md)
+[Design spec](docs/superpowers/specs/2026-08-06-voxgate-design.md) · [System design](docs/ARCHITECTURE.md) · [Per-phase build docs](docs/phases/README.md) · [Live demo runbook](docs/demo/DEMO-RUNBOOK.md)
 
 `voxgate` · Python 3.12 · `uv` · 109 test cases
 
