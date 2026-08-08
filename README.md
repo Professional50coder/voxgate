@@ -33,7 +33,7 @@ Every regulated account starts with an interview, a screening, and a decision. I
 
 A scenario pack is a self-contained folder. The platform never imports a pack by name.
 
-![VoxGate architecture](docs/figures/fig1-architecture.svg)
+![VoxGate architecture](docs/figures/fig1-architecture.png)
 
 ```
 Browser /apply ⇄ WebSocket(protobuf) ⇄ Voice agent (Pipecat: Groq STT → LLM → Cartesia TTS)
