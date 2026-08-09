@@ -1,9 +1,9 @@
 from datetime import date
 from pydantic import BaseModel, field_validator
 
-VALID_SOF = {"salary", "business_income", "investments", "inheritance", "crypto_trading", "other"}
-VALID_PRODUCTS = {"spot_trading", "derivatives", "custody"}
-VALID_RESIDENCY = {"uae_resident", "non_resident"}
+VALID_SOURCE_OF_FUNDS = {"salary", "business_income", "investments", "inheritance", "crypto_trading", "other"}
+VALID_PRODUCT = {"spot_trading", "derivatives", "custody"}
+VALID_RESIDENCY_STATUS = {"uae_resident", "non_resident"}
 
 class Schema(BaseModel):
     full_name: str
@@ -32,19 +32,19 @@ class Schema(BaseModel):
     @field_validator("residency_status")
     @classmethod
     def res_valid(cls, v):
-        if v not in VALID_RESIDENCY: raise ValueError(f"one of {VALID_RESIDENCY}")
+        if v not in VALID_RESIDENCY_STATUS: raise ValueError(f"one of {VALID_RESIDENCY_STATUS}")
         return v
 
     @field_validator("source_of_funds")
     @classmethod
     def sof_valid(cls, v):
-        if v not in VALID_SOF: raise ValueError(f"one of {VALID_SOF}")
+        if v not in VALID_SOURCE_OF_FUNDS: raise ValueError(f"one of {VALID_SOURCE_OF_FUNDS}")
         return v
 
     @field_validator("product")
     @classmethod
     def product_valid(cls, v):
-        if v not in VALID_PRODUCTS: raise ValueError(f"one of {VALID_PRODUCTS}")
+        if v not in VALID_PRODUCT: raise ValueError(f"one of {VALID_PRODUCT}")
         return v
 
 REASK_HINTS = {

@@ -1,0 +1,4 @@
+pack_id: "tenant-screening"
+display_name: "Rental Tenant Screening"
+gate_role: "Letting Manager"
+thresholds: {low: 0.3, high: 0.62}

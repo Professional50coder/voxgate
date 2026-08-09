@@ -1,0 +1,4 @@
+pack_id: "support-triage"
+display_name: "Customer Support Triage"
+gate_role: "Support Lead"
+thresholds: {low: 0.28, high: 0.6}

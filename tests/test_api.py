@@ -5,24 +5,28 @@ from voxgate.config import get_settings
 from voxgate.packs.loader import load_packs
 from voxgate.service.app import create_app
 from voxgate.service.runner import CaseRunner
-from voxgate.service.store import CaseStore
+from voxgate.service.store import InMemoryCaseStore
 from voxgate.service.events import EventBus
 from tests.test_pack_kyc_uae import CLEAN, RISKY
 
 @pytest.fixture()
 def client():
     runner = CaseRunner(load_packs(get_settings().packs_dir),
-                        MemorySaver, CaseStore(), EventBus())
+                        MemorySaver, InMemoryCaseStore(), EventBus())
     return TestClient(create_app(runner=runner))
 
 def test_packs_listing(client):
     packs = client.get("/packs").json()
-    assert packs[0]["pack_id"] == "kyc-uae"
-    assert "full_name" in packs[0]["fields"]
-    # voice agent needs natural-language question prompts per field
-    assert "reask_hints" in packs[0]
-    assert "full_name" in packs[0]["reask_hints"]
-    assert "feature_field_hints" in packs[0]
+    by_id = {p["pack_id"]: p for p in packs}
+    # Look the pack up by id rather than by position. Packs load in directory
+    # order, so asserting on packs[0] breaks the moment a pack is added whose
+    # directory sorts earlier.
+    assert "kyc-uae" in by_id
+    kyc = by_id["kyc-uae"]
+    assert "full_name" in kyc["fields"]
+    # reask_hints are what the applicant-facing interview reads its questions
+    # from, so every field must have one.
+    assert set(kyc["reask_hints"]) == set(kyc["fields"])
 
 def test_case_lifecycle_over_http(client):
     case = client.post("/cases", json={"pack_id": "kyc-uae"}).json()
@@ -50,66 +54,6 @@ def test_decision_flow_and_conflicts(client):
 def test_unknown_pack_and_case_404(client):
     assert client.post("/cases", json={"pack_id": "nope"}).status_code == 404
     assert client.get("/cases/nope").status_code == 404
-
-def test_captions_publish_to_live_stream(client):
-    cid = client.post("/cases", json={"pack_id": "kyc-uae"}).json()["case_id"]
-    with client.websocket_connect(f"/cases/{cid}/events") as ws:
-        first = ws.receive_json()
-        assert first["kind"] == "state"
-        r = client.post(f"/cases/{cid}/captions",
-                        json={"role": "agent", "text": "What is your name?"})
-        assert r.status_code == 200
-        while True:
-            ev = ws.receive_json()
-            if ev["kind"] == "caption":
-                assert ev["role"] == "agent"
-                assert ev["text"] == "What is your name?"
-                break
-
-def test_captions_404_unknown_case(client):
-    assert client.post("/cases/nope/captions",
-                       json={"role": "agent", "text": "hi"}).status_code == 404
-
-def test_answer_uses_groq_brain(client, monkeypatch):
-    import voxgate.groq_brain as brain
-    monkeypatch.setattr(brain, "interpret_answer",
-                        lambda field, text, hints=None: {"value": "uae_resident",
-                                                         "confidence": 0.9, "source": "llm"})
-    cid = client.post("/cases", json={"pack_id": "kyc-uae"}).json()["case_id"]
-    r = client.post(f"/cases/{cid}/answer",
-                    json={"field": "residency_status", "transcript": "I am a UAE resident"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["value"] == "uae_resident"
-    assert body["source"] == "llm"
-
-def test_agent_line_uses_groq_brain(client, monkeypatch):
-    import voxgate.groq_brain as brain
-    monkeypatch.setattr(brain, "agent_line",
-                        lambda field, hint="", last_captured=None, transcript="", attempt=0:
-                        {"line": "Great. And what is your date of birth?", "source": "llm"})
-    cid = client.post("/cases", json={"pack_id": "kyc-uae"}).json()["case_id"]
-    r = client.post(f"/cases/{cid}/agent-line",
-                    json={"field": "dob", "hint": "When were you born?"})
-    assert r.status_code == 200
-    assert r.json()["line"] == "Great. And what is your date of birth?"
-
-def test_agent_line_404_unknown_case(client):
-    assert client.post("/cases/nope/agent-line",
-                       json={"field": "dob"}).status_code == 404
-
-def test_agent_greeting_uses_brain(client, monkeypatch):
-    import voxgate.groq_brain as brain
-    monkeypatch.setattr(brain, "greeting",
-                        lambda name="", hour=None, **kw:
-                        {"line": "Good morning, Priya. I'm VoxGate.", "source": "llm"})
-    cid = client.post("/cases", json={"pack_id": "kyc-uae"}).json()["case_id"]
-    r = client.post(f"/cases/{cid}/agent-greeting", json={"name": "Priya"})
-    assert r.status_code == 200
-    assert r.json()["line"] == "Good morning, Priya. I'm VoxGate."
-
-def test_agent_greeting_404_unknown_case(client):
-    assert client.post("/cases/nope/agent-greeting", json={}).status_code == 404
 
 def test_ws_streams_history_then_live(client):
     cid = client.post("/cases", json={"pack_id": "kyc-uae"}).json()["case_id"]

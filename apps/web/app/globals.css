@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   VoxGate design tokens.
+
+   The palette is derived from the hero ribbons: ice (#7debff), periwinkle
+   (#6c7dff) and lavender (#c87bff) over a purple-tinted near-black. Every
+   surface reads from these, so the marketing site, the applicant interview and
+   the operator console are visibly the same product.
+
+   Supersedes the earlier blue/purple/pink ramp inherited from
+   src/voxgate/service/static/dashboard.css.
+
+   Self-contained: no runtime font or asset fetches.
+--------------------------------------------------------------------------- */
+
+@theme {
+  /* Surfaces. Purple-tinted near-black, taken from the hero field so the
+     product and the marketing site sit in the same world. */
+  --color-bg: #09030c;
+  --color-bg-1: #120a1a;
+  --color-glass: rgba(255, 255, 255, 0.055);
+  --color-glass-border: rgba(255, 255, 255, 0.11);
+  --color-glass-border-soft: rgba(255, 255, 255, 0.065);
+  --color-surface-2: rgba(255, 255, 255, 0.038);
+
+  /* text */
+  --color-text: #f0edfa;
+  --color-text-dim: #b7b7c2;
+  --color-text-faint: #7a7490;
+
+  /* Accent ramp. These are the ribbon colours: ice, periwinkle, lavender.
+     Variable names kept from the earlier palette so every consumer inherits
+     the change without a rename sweep. */
+  --color-siri-1: #7debff;
+  --color-siri-2: #6c7dff;
+  --color-siri-3: #c87bff;
+
+  /* Status semantics. Strings match the backend's status vocabulary exactly.
+     Processing and awaiting-review sit on the accent ramp; the three that mean
+     "act on me" stay deliberately off-ramp so they cannot be mistaken for
+     decoration. */
+  --color-status-awaiting-interview: #ffc46b;
+  --color-status-processing: #6c7dff;
+  --color-status-awaiting-review: #c87bff;
+  --color-status-approved: #3fe8b0;
+  --color-status-rejected: #ff6b8e;
+  --color-status-needs-attention: #ff8f5c;
+
+  /* Risk bands stay maximally distinct from each other. Legibility of a risk
+     band outranks palette harmony. */
+  --color-risk-low: #3fe8b0;
+  --color-risk-medium: #ffc46b;
+  --color-risk-high: #ff6b8e;
+
+  /* motion */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root {
+  --siri-gradient: linear-gradient(120deg, #7debff 0%, #6c7dff 52%, #c87bff 100%);
+
+  /* Shape system, locked: cards 14px, interactive elements full pill, inputs 8px. */
+  --r-card: 14px;
+  --r-pill: 999px;
+  --r-input: 8px;
+
+  color-scheme: dark;
+}
+
+html {
+  background: #09030c;
+  color: #f0edfa;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background: #09030c;
+}
+
+/* Ambient aurora field.
+   Transform-only drift so the 52px blur rasterizes once. Animating `filter`
+   or the gradient stops instead would re-rasterize every frame. */
+.aurora {
+  position: fixed;
+  inset: -20%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(42vmax 42vmax at 18% 20%, #6c7dff 0%, transparent 62%),
+    radial-gradient(38vmax 38vmax at 80% 28%, #c87bff 0%, transparent 60%),
+    radial-gradient(46vmax 46vmax at 52% 86%, #7debff 0%, transparent 64%);
+  filter: blur(52px) saturate(1.25);
+  opacity: 0.2;
+  will-change: transform;
+  animation: drift 48s ease-in-out infinite alternate;
+}
+
+@keyframes drift {
+  from {
+    transform: translate3d(-3%, -2%, 0) scale(1.04);
+  }
+  to {
+    transform: translate3d(3%, 2%, 0) scale(1.12);
+  }
+}
+
+/* Baked grain. A live filter: url(#noise) would re-run Perlin turbulence on
+   every repaint across the whole viewport. */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.03;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.gradient-text {
+  background: var(--siri-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Glass is rationed to chrome surfaces only: nav and the hero panel.
+   Every blurred surface is a separate backdrop readback plus GPU blur, and text
+   over a variable-luminance backdrop has unguaranteeable contrast. */
+.glass {
+  background: rgba(18, 10, 26, 0.94);
+  border: 1px solid var(--color-glass-border);
+}
+
+@supports (backdrop-filter: blur(12px)) {
+  .glass {
+    background: rgba(18, 10, 26, 0.6);
+    backdrop-filter: blur(16px) saturate(1.45);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background: rgba(18, 10, 26, 0.97);
+    backdrop-filter: none;
+  }
+}

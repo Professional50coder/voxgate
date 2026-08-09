@@ -14,17 +14,30 @@ dependencies = [
     "rapidfuzz>=3.9",
     "numpy>=1.26",
     "psycopg[binary]>=3.1",
+    # Schema migrations. CREATE TABLE IF NOT EXISTS creates a schema; it does
+    # not migrate one, so the first change that has to preserve data needs this.
+    "alembic>=1.13",
+    "exa-py>=2.16.2",
 ]
 
 [project.optional-dependencies]
 embeddings = ["sentence-transformers>=3.0"]
+# Voice stack. Heavy (models download on first use), so it is deliberately not
+# part of the default install.
+#
+# Pinned <2 because PipelineTask and PipelineRunner are removed in 2.0.0.
+# The >=0.0.60 floor this replaces was from the previous framework generation
+# and silently resolved across a major version.
+#
+# deepgram and cartesia were dropped: both are paid-key services, which the
+# local-first constraint rules out. whisper and kokoro are their local
+# equivalents; groq covers the hosted fallback.
 voice = [
-    "pipecat-ai[webrtc,deepgram,cartesia,openai,silero]>=0.0.60",
-    "faster-whisper>=1.0",
+    "pipecat-ai[webrtc,websocket,whisper,kokoro,silero,groq]>=1.7,<2",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.2", "httpx>=0.27", "websockets>=12.0"]
+dev = ["pytest>=8.2", "pytest-asyncio>=0.24", "httpx>=0.27", "websockets>=12.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -33,6 +46,14 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/voxgate"]
 
+# Vercel deployment: point the build at the top-level FastAPI app in app.py.
+[tool.vercel]
+entrypoint = "app:app"
+
 [tool.pytest.ini_options]
+# The voice interview processor is async, and every test of it is a coroutine.
+# auto mode rather than a decorator on each: forgetting the marker makes a test
+# pass by never running, which is the worst way for a test to be wrong.
+asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]

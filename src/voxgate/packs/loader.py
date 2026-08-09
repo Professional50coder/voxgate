@@ -1,8 +1,11 @@
 import importlib.util
+import logging
 import sys
 from pathlib import Path
 import yaml
 from .base import Pack
+
+logger = logging.getLogger(__name__)
 
 class PackLoadError(Exception):
     """Exception raised when a pack fails to load, wrapping the underlying error with pack context."""
@@ -33,16 +36,38 @@ def load_pack(path: Path) -> Pack:
     except Exception as e:
         raise PackLoadError(f"Failed to load pack from {path}: {e}") from e
 
-def load_packs(packs_dir: Path) -> dict[str, Pack]:
+def load_packs(packs_dir: Path, *, strict: bool = False) -> dict[str, Pack]:
+    """Load every pack in a directory.
+
+    One unloadable pack must not stop the service starting. That was a real
+    availability hole: a partially-written pack directory made `load_packs`
+    raise, `create_app` raise, and the process refuse to boot until someone
+    deleted the directory by hand — an outage that survived restarts.
+
+    A broken pack is therefore skipped with a warning, and the other packs
+    still serve. Pass `strict=True` where a silent skip would hide a mistake,
+    such as the CLI generator or a conformance run.
+    """
     out: dict[str, Pack] = {}
-    pack_paths: dict[str, Path] = {}  # track pack_id -> directory for collision detection
+    pack_paths: dict[str, Path] = {}  # pack_id -> directory, for collision detection
     for child in sorted(packs_dir.iterdir()):
-        if child.is_dir() and (child / "pack.yaml").exists():
+        if not (child.is_dir() and (child / "pack.yaml").exists()):
+            continue
+        # Staging directories from an in-flight publish. Skipping them keeps a
+        # concurrent publish from being seen half-written.
+        if child.name.startswith((".staging-", ".")) or child.name.endswith(".replacing"):
+            continue
+        try:
             pack = load_pack(child)
-            if pack.pack_id in out:
-                raise ValueError(
-                    f"Duplicate pack_id '{pack.pack_id}' found in {pack_paths[pack.pack_id]} and {child}"
-                )
-            out[pack.pack_id] = pack
-            pack_paths[pack.pack_id] = child
+        except Exception as exc:
+            if strict:
+                raise
+            logger.warning("skipping unloadable pack at %s: %s", child, exc)
+            continue
+        if pack.pack_id in out:
+            raise ValueError(
+                f"Duplicate pack_id '{pack.pack_id}' found in {pack_paths[pack.pack_id]} and {child}"
+            )
+        out[pack.pack_id] = pack
+        pack_paths[pack.pack_id] = child
     return out

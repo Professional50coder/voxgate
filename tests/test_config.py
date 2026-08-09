@@ -13,13 +13,3 @@ def test_env_override(monkeypatch):
     s = Settings()
     assert s.database_url == "postgresql://x"
     assert s.packs_dir == Path("C:/tmp/pk")
-
-def test_cartesia_alias(monkeypatch):
-    monkeypatch.setenv("CARTESIA_API_KEY", "sk_car_test")
-    s = Settings()
-    assert s.cartesia_api_key == "sk_car_test"
-
-def test_cartesia_reads_real_env():
-    s = Settings()
-    if s.cartesia_api_key:
-        assert s.cartesia_api_key.startswith("sk_car_")

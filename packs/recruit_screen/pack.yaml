@@ -1,0 +1,4 @@
+pack_id: "recruit-screen"
+display_name: "Candidate Phone Screen"
+gate_role: "Hiring Manager"
+thresholds: {low: 0.32, high: 0.66}

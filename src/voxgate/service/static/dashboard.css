@@ -507,8 +507,8 @@ select.field-input, .select-input {
    Live interview captions — Siri voice pane
    ========================================================================== */
 .voice-pane { display: flex; flex-direction: column; gap: var(--sp-4); align-items: center; }
-.orb-wrap { position: relative; width: 320px; height: 200px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 16px; border: 1px solid rgba(0,207,255,0.14); box-shadow: 0 10px 40px -12px rgba(0,207,255,0.28), inset 0 0 30px rgba(13,53,90,0.4); background: radial-gradient(120% 120% at 50% 100%, #0B2947 0%, #0D355A 70%); }
-#orb-canvas { width: 320px; height: 200px; display: block; }
+.orb-wrap { position: relative; width: 128px; height: 128px; display: flex; align-items: center; justify-content: center; }
+#orb-canvas { width: 128px; height: 128px; }
 .orb-state-label { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); }
 
 .captions {
@@ -529,34 +529,6 @@ select.field-input, .select-input {
 .caption-word.interim { opacity: 0.42; font-style: italic; }
 .caption-cursor { display: inline-block; width: 2px; height: 12px; background: var(--siri-2); margin-left: 2px; vertical-align: middle; animation: caret-blink 900ms steps(1) infinite; }
 @keyframes caret-blink { 50% { opacity: 0; } }
-
-/* ---------------------------------------------------------------------------
-   Interactive voice session controls (Start / End + live transcript strip)
-   --------------------------------------------------------------------------- */
-.voice-session {
-  width: 100%; display: flex; flex-direction: column; gap: var(--sp-3);
-  padding: var(--sp-4); border: 1px solid var(--glass-border-soft);
-  border-radius: 14px; background: rgba(255,255,255,0.02);
-}
-.voice-status {
-  font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--siri-2);
-}
-.voice-status:empty { display: none; }
-.voice-question { font-size: 13.5px; line-height: 1.5; color: var(--text); min-height: 20px; }
-.voice-heard { min-height: 18px; font-size: 12.5px; color: var(--text-dim); }
-.voice-heard-text { font-style: italic; color: var(--status-approved); }
-.voice-voice { display: flex; align-items: center; gap: var(--sp-3); }
-.voice-voice-label { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); white-space: nowrap; }
-.voice-voice-select {
-  flex: 1; min-width: 0; padding: 6px 8px; border-radius: 8px;
-  border: 1px solid var(--glass-border-soft); background: rgba(255,255,255,0.04);
-  color: var(--text); font-size: 12px; font-family: var(--font-sans);
-}
-.voice-controls { display: flex; gap: var(--sp-3); margin-top: 2px; }
-.voice-controls .btn { flex: 1; }
-.voice-progress { font-size: 11px; color: var(--text-faint); letter-spacing: 0.04em; }
-.voice-progress:empty { display: none; }
 
 /* ==========================================================================
    Pipeline graph

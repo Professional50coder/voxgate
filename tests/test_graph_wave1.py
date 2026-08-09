@@ -19,7 +19,7 @@ from voxgate.config import get_settings
 from voxgate.packs.loader import load_pack, load_packs
 from voxgate.packs.base import CheckResult
 from voxgate.graph.build import build_graph, MAX_REASKS
-from voxgate.service.store import CaseStore
+from voxgate.service.store import InMemoryCaseStore
 from voxgate.service.events import EventBus
 from voxgate.service.runner import CaseRunner
 from tests.test_pack_kyc_uae import CLEAN, RISKY
@@ -33,7 +33,7 @@ def pack():
 @pytest.fixture()
 def runner():
     packs = load_packs(get_settings().packs_dir)
-    return CaseRunner(packs, MemorySaver, CaseStore(), EventBus())
+    return CaseRunner(packs, MemorySaver, InMemoryCaseStore(), EventBus())
 
 
 def start(graph, pack):
@@ -274,5 +274,5 @@ def test_runner_store_carries_audit_trail_after_clean_lifecycle(runner):
         assert isinstance(e["duration_ms"], float) and e["duration_ms"] >= 0.0
 
     # also present via runner.store directly, not just the returned dict
-    stored = runner.store.get(case["case_id"])
+    stored = runner.store.get(runner.tenant, case["case_id"])
     assert stored["audit"] == audit

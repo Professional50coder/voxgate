@@ -1,26 +1,36 @@
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
-.pytest_cache/
 .venv/
-build/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
 dist/
+build/
 
-# Runtime secrets — never commit
-.env
-.env.*
-!.env.example
-api.txt
-github.txt
+# Node / Next.js (for the planned apps/web)
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
 
-# OS / editors
+# Models and caches downloaded at runtime
+.cache/
+models/
+*.onnx
+*.bin
+
+# OS
 .DS_Store
 Thumbs.db
-.idea/
-.vscode/traces/
-
-# Local dev artifacts / session traces
-traces/
-.superpowers/
-.paul/
+desktop.ini

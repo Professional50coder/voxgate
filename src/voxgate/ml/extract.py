@@ -1,0 +1,225 @@
+"""Map a spoken answer onto the exact value a pack's schema requires.
+
+People do not answer like forms. "about two and a half years now" has to become
+`one_to_three`, and "we only moved in back in spring" has to become `under_1`.
+Keyword matching cannot do this: neither sentence contains a keyword worth
+matching on.
+
+Two implementations behind one protocol:
+
+  KeywordExtractor  deterministic, offline, no key. Used by the test suite and
+                    as the fallback whenever Groq is unavailable or unsure.
+  GroqExtractor     an LLM constrained by a JSON schema whose enum is the pack's
+                    own allowed values, so it is structurally incapable of
+                    returning a value the schema would reject.
+
+The division of labour matters and is deliberate: the LLM decides *what the
+person said*. It never decides what happens next. Routing, scoring and the
+approve/reject decision stay in the graph, which is what keeps the audit trail
+meaningful.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
+
+from voxgate.ml.understanding import is_non_answer
+
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+SYSTEM = (
+    "You map a spoken answer onto one allowed value. Choose the single closest "
+    "value. Never invent a value outside the list. confidence is 0..1 for how "
+    "certain the mapping is; use a low value when the answer is ambiguous or "
+    "does not address the question."
+)
+
+
+@dataclass(frozen=True)
+class Extraction:
+    """One mapped answer.
+
+    `value` is None when nothing could be mapped, which the caller should treat
+    as a re-ask rather than as a failure.
+    """
+
+    value: str | None
+    confidence: float
+    source: str  # "keyword" | "groq" | "passthrough"
+
+
+@runtime_checkable
+class FieldExtractor(Protocol):
+    def extract(self, field: str, allowed: list[str] | None, spoken: str) -> Extraction:
+        ...
+
+
+class KeywordExtractor:
+    """Offline fallback. Substring and token overlap against the value names.
+
+    Deliberately conservative: it would rather return None and trigger a re-ask
+    than guess. That is the correct failure mode for an interview whose answers
+    feed a compliance decision.
+    """
+
+    def extract(self, field: str, allowed: list[str] | None, spoken: str) -> Extraction:
+        text = spoken.strip().lower()
+        if not text:
+            return Extraction(None, 0.0, "keyword")
+
+        if allowed is None:
+            # A free-text field takes the transcript as the value, so it is the
+            # ONLY place a non-answer can be stored verbatim. It used to be:
+            # an applicant who said "I don't know" to every question had that
+            # recorded as their legal name and their source of funds, and the
+            # case reached a reviewer looking complete. An enum field was never
+            # exposed this way, because the value has to be in the allowed set.
+            if is_non_answer(spoken):
+                return Extraction(None, 0.0, "non-answer")
+            return Extraction(spoken.strip(), 0.6, "passthrough")
+
+        # Exact value spoken back, e.g. an operator typing the literal.
+        for value in allowed:
+            if value.lower() == text:
+                return Extraction(value, 1.0, "keyword")
+
+        # Whole value name appearing in the sentence, longest first so
+        # "mortgage_approved" wins over "mortgage_pending" on a shared prefix.
+        for value in sorted(allowed, key=len, reverse=True):
+            if value.replace("_", " ").lower() in text:
+                return Extraction(value, 0.8, "keyword")
+
+        # Token overlap. Requires every token of the value to be present, which
+        # keeps "one" from matching "one_to_three" on its own.
+        best: tuple[str, float] | None = None
+        for value in allowed:
+            tokens = [t for t in re.split(r"[_\s]+", value.lower()) if t.isalpha()]
+            if not tokens:
+                continue
+            present = sum(1 for t in tokens if t in text)
+            if present == len(tokens):
+                score = 0.55 + 0.05 * len(tokens)
+                if best is None or score > best[1]:
+                    best = (value, score)
+        if best:
+            return Extraction(best[0], best[1], "keyword")
+
+        return Extraction(None, 0.0, "keyword")
+
+
+class GroqExtractor:
+    """Groq-backed extraction, constrained by the pack's own allowed values.
+
+    Falls back to KeywordExtractor on any failure: no key, network error, rate
+    limit, or a confidence below `floor`. An interview must never break because
+    a hosted API had a bad minute.
+    """
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        floor: float = 0.55,
+        timeout: float = 12.0,
+    ):
+        from voxgate.config import get_settings
+
+        settings = get_settings()
+        self.model = model or settings.groq_model
+        # An explicit api_key (including "" in tests) overrides the pool.
+        self.keys = [api_key] if api_key is not None else settings.groq_key_pool()
+        self.keys = [k for k in self.keys if k]
+        self.floor = floor
+        self.timeout = timeout
+        self._fallback = KeywordExtractor()
+
+    @property
+    def api_key(self) -> str | None:
+        return self.keys[0] if self.keys else None
+
+    @property
+    def available(self) -> bool:
+        return bool(self.keys)
+
+    def extract(self, field: str, allowed: list[str] | None, spoken: str) -> Extraction:
+        if not spoken.strip():
+            return Extraction(None, 0.0, "groq")
+        if not self.available or allowed is None:
+            return self._fallback.extract(field, allowed, spoken)
+
+        # Extraction is the highest-volume LLM path in the product: once per
+        # interview question, per applicant. It needs the model+key fallback
+        # MORE than drafting does, not less. Routing it through the shared
+        # client was missed the first time, and the symptom was extraction
+        # silently degrading to keyword matching under load, which reads as
+        # "the model got worse" rather than "we ran out of quota".
+        from voxgate.ml.groq_client import GroqError, structured_call
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "value": {"type": "string", "enum": list(allowed)},
+                "confidence": {"type": "number"},
+            },
+            "required": ["value", "confidence"],
+            "additionalProperties": False,
+        }
+
+        try:
+            result = structured_call(
+                api_keys=self.keys,
+                system=SYSTEM,
+                user=f"Field: {field}\nSpoken answer: {spoken!r}",
+                schema=schema,
+                schema_name="extraction",
+                preferred_model=self.model,
+                temperature=0,
+                max_tokens=200,
+                timeout=self.timeout,
+            )
+        except GroqError:
+            # Covers rate limiting and every other provider failure. An
+            # interview must never break because a hosted API had a bad minute.
+            return self._fallback.extract(field, allowed, spoken)
+
+        value = result.content.get("value")
+        confidence = float(result.content.get("confidence", 0.0))
+
+        # The schema enum makes an out-of-range value impossible on the strict
+        # tier, and the client validates the lenient tier. Checked anyway: this
+        # value lands on a compliance record.
+        if value not in allowed or confidence < self.floor:
+            fallback = self._fallback.extract(field, allowed, spoken)
+            return fallback if fallback.value else Extraction(None, confidence, "groq")
+
+        return Extraction(value, confidence, "groq")
+
+
+def allowed_values(schema_model, field: str) -> list[str] | None:
+    """Read a field's permitted values out of the pack schema.
+
+    Packs declare these as a module-level `VALID_<FIELD>` set next to the
+    validator that enforces them, so the extractor and the validator can never
+    disagree about what is acceptable.
+    """
+    module = getattr(schema_model, "__module__", None)
+    import sys
+
+    mod = sys.modules.get(module) if module else None
+    if mod is None:
+        return None
+    values = getattr(mod, f"VALID_{field.upper()}", None)
+    return sorted(values) if values else None
+
+
+def build_extractor() -> FieldExtractor:
+    """Groq when a key is present, deterministic keyword matching otherwise.
+
+    This is what keeps the test suite offline and keyless by default.
+    """
+    groq = GroqExtractor()
+    return groq if groq.available else KeywordExtractor()

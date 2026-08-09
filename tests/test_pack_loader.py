@@ -126,3 +126,44 @@ def test_load_pack_missing_scoring_py_raises_pack_load_error(tmp_path):
         load_pack(d)
     assert str(d) in str(excinfo.value)
     assert excinfo.value.__cause__ is not None
+
+def test_one_broken_pack_does_not_stop_the_others_loading(tmp_path, caplog):
+    """Regression: a single unloadable pack used to make the process refuse to
+    boot.
+
+    `load_packs` raised, `create_app` raised, and the service stayed down until
+    someone deleted the directory by hand — an outage that survived restarts and
+    that any failed publish could cause. A broken pack is now skipped loudly.
+    """
+    make_min_pack(tmp_path, "good")
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    (broken / "pack.yaml").write_text("pack_id: broken\n", encoding="utf-8")
+
+    packs = load_packs(tmp_path)
+
+    assert list(packs) == ["good"], "the healthy pack must still serve"
+    assert any("broken" in r.getMessage() for r in caplog.records), (
+        "skipping must be logged, not silent"
+    )
+
+
+def test_strict_still_raises_on_a_broken_pack(tmp_path):
+    """The CLI generator and conformance runs want the failure, not the skip."""
+    make_min_pack(tmp_path, "good")
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    (broken / "pack.yaml").write_text("pack_id: broken\n", encoding="utf-8")
+
+    with pytest.raises(PackLoadError):
+        load_packs(tmp_path, strict=True)
+
+
+def test_in_flight_publish_staging_dirs_are_invisible(tmp_path):
+    """publish_pack stages into a sibling `.staging-*` directory before renaming
+    into place. A concurrent load must never see that half-written pack."""
+    make_min_pack(tmp_path, "good")
+    make_min_pack(tmp_path, ".staging-abc123")
+    make_min_pack(tmp_path, "good.replacing")
+
+    assert list(load_packs(tmp_path)) == ["good"]

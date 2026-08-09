@@ -1,0 +1,4 @@
+pack_id: "patient-intake"
+display_name: "Clinic Patient Intake"
+gate_role: "Triage Nurse"
+thresholds: {low: 0.25, high: 0.55}

@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --all-extras --dev
+
+      # No API keys in CI. This is the point: the suite must be green with no
+      # secrets, so a fork or a first-time contributor gets a working build.
+      # Groq and Postgres tests skip cleanly when unconfigured.
+      - name: Run tests (offline, keyless)
+        run: uv run pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      # Catches the class of break that only shows at build time: a missing
+      # import, a type error, a server component using a client-only hook.
+      - run: npm run build

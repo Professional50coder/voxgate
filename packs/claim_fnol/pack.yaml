@@ -1,0 +1,4 @@
+pack_id: "claim-fnol"
+display_name: "Insurance First Notice of Loss"
+gate_role: "Claims Adjuster"
+thresholds: {low: 0.28, high: 0.62}

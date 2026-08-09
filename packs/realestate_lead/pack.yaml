@@ -1,0 +1,4 @@
+pack_id: "realestate-lead"
+display_name: "Real Estate Buyer Qualification"
+gate_role: "Listing Agent"
+thresholds: {low: 0.32, high: 0.68}
