@@ -1,5 +1,20 @@
 # Deploying VoxGate
 
+## Deploying on Vercel
+
+VoxGate is two separate Vercel projects in one repository:
+
+1. **API** — root directory is the repo root. Vercel detects Python/FastAPI from
+   `pyproject.toml`; `tool.vercel.entrypoint = "app:app"` points the build at
+   the top-level FastAPI instance in `app.py`.
+2. **Web app** — subject path `apps/web`. Vercel detects Next.js from that
+   directory's `package.json`. Set its `API_ORIGIN` env var to the API
+   project's URL so `/api/*` rewrites reach the backend. See
+   `apps/web/README.md`.
+
+The browser talks only to the web app's origin; `next.config.ts` proxies
+`/api/*` to the API, so CORS is never involved.
+
 Two processes and a Postgres database. The frontend proxies to the API, so the
 browser only ever talks to one origin.
 

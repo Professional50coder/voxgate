@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VoxGate web (`apps/web`)
 
-## Getting Started
+The VoxGate frontend: a Next.js 16 / React 19 app. It is deployed as its own
+Vercel project, separate from the FastAPI backend at the repo root. The browser
+talks same-origin and `next.config.ts` rewrites `/api/*` to the backend, so
+CORS never comes into play — see `next.config.ts` for why.
 
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+browser ──▶ Next.js (apps/web) ──/api/*──▶ FastAPI (repo root) ──▶ Postgres
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Local development
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+cd apps/web
+npm ci
+npm run dev          # http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Start the backend first (see the repo-root README; `uv run uvicorn
+voxgate.service.app:app --port 8000`). dev defaults `API_ORIGIN` to
+`http://127.0.0.1:8000`.
 
-## Learn More
+## Deploying to Vercel
 
-To learn more about Next.js, take a look at the following resources:
+The backend and this web app are two separate Vercel projects in the same
+repository:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. **Backend** — root directory is the repo root (Python/FastAPI). Already
+   deployed; its URL is `API_ORIGIN` for this project.
+2. **Web app** — a Vercel project whose **Root Directory** is set to `apps/web`.
+   Vercel detects Next.js from `package.json` at that root automatically.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Environment variables:
 
-## Deploy on Vercel
+| Variable | Where | Purpose |
+|---|---|---|
+| `API_ORIGIN` | server-side env, read at start | Backend origin that `/api/*` rewrites to. Changing it is a restart, not a rebuild. |
+| `NEXT_PUBLIC_SITE_URL` | build-time | Canonical URL for sitemap/robots/OG metadata. Defaults to `https://voxgate.app`. Override with your real frontend URL. |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Do not set `NEXT_PUBLIC_API_URL` unless the frontend is served by something
+that cannot rewrite `/api/*`; doing so reintroduces cross-origin calls and
+requires `VOXGATE_CORS_ORIGINS` on the backend. See `env.example`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Notes
+
+- `npm run lint` and `npm run build` run in CI (`.github/workflows/ci.yml`).
+- `.env.local` is gitignored; `env.example` documents the variables.
