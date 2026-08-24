@@ -4,6 +4,11 @@
 .env.*.local
 *.pem
 *.key
+api.txt
+
+# Runtime artifacts (traces contain prompt/response content)
+traces/
+transcripts/
 
 # Python
 __pycache__/
