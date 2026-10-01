@@ -114,7 +114,7 @@ export default function Home() {
                 <ArrowRight size={16} weight="bold" />
               </Link>
               <Link
-                href="#pipeline"
+                href="/how-it-works"
                 className="inline-flex items-center gap-2 rounded-[var(--r-pill)] border px-6 py-3 text-[14.5px] font-medium text-white transition-colors active:scale-[0.98]"
                 style={{
                   background: "rgba(255,255,255,0.06)",

@@ -1,67 +1,92 @@
 "use client";
 
-import { Play } from "@phosphor-icons/react";
+import { ArrowRight, Pause, Play } from "@phosphor-icons/react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { getPacks } from "@/lib/api";
+import { type Pack, getPacks } from "@/lib/api";
+import { agentAnalyser, say, stopSpeaking } from "@/lib/voice";
 
 /**
- * The hero's product card. Deliberately a live component rather than a mock:
- * the pack name and question count are fetched from the running API, and the
- * button starts a real interview. A styled-div imitation of a screenshot would
- * be the easier build and the more dishonest one.
+ * The hero's agent picker. Live, not a mock: the agents come from the running
+ * API, Play speaks in that agent's real voice, the waveform is drawn from the
+ * audio actually playing, and the button starts that agent's interview.
  */
 
-// Fixed bar heights: a deterministic pattern reads as a waveform, whereas
-// random heights re-rolled per render read as noise.
-const BARS = [
-  0.24, 0.42, 0.66, 0.38, 0.82, 0.54, 0.3, 0.7, 0.94, 0.48, 0.26, 0.6, 0.86, 0.4,
-  0.68, 0.32, 0.52, 0.78, 0.44, 0.28, 0.62, 0.9, 0.36, 0.56, 0.74, 0.34, 0.46,
-  0.66, 0.22, 0.5,
+type Featured = { pack: string; industry: string; voice: string };
+
+// Leading with four industries keeps the choice instant; the rest are one
+// click away on How it works.
+const FEATURED: Featured[] = [
+  { pack: "kyc-uae", industry: "Banking KYC", voice: "British · calm and reassuring" },
+  { pack: "patient-intake", industry: "Patient intake", voice: "American · warm and unhurried" },
+  { pack: "sales-discovery", industry: "Sales discovery", voice: "American · bright and friendly" },
+  { pack: "recruit-screen", industry: "Recruiting", voice: "British · crisp and professional" },
 ];
 
+const BAR_COUNT = 30;
+const IDLE = Array.from({ length: BAR_COUNT }, (_, i) => 0.14 + 0.1 * Math.abs(Math.sin(i * 0.9)));
+
 export function AgentCard() {
-  const [packName, setPackName] = useState<string | null>(null);
-  const [questions, setQuestions] = useState<number | null>(null);
-  const [playing, setPlaying] = useState(true);
-  const [tick, setTick] = useState(0);
+  const [packs, setPacks] = useState<Pack[]>([]);
+  const [active, setActive] = useState(FEATURED[0].pack);
+  const [playing, setPlaying] = useState(false);
+  const [bars, setBars] = useState<number[]>(IDLE);
+  const rafRef = useRef(0);
 
-  // The waveform runs on its own so the card reads as live rather than parked.
-  // Stops when paused, when the tab is hidden, or under reduced motion.
   useEffect(() => {
-    if (!playing) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    let raf = 0;
-    let last = 0;
-    const loop = (t: number) => {
-      if (t - last > 90) {
-        last = t;
-        if (!document.hidden) setTick((n) => n + 1);
-      }
-      raf = requestAnimationFrame(loop);
+    getPacks().then(setPacks).catch(() => {
+      // Offline is fine on a marketing page: the card keeps its static labels.
+    });
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      stopSpeaking();
     };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, [playing]);
-
-  useEffect(() => {
-    getPacks()
-      .then((packs) => {
-        const p = packs[0];
-        if (!p) return;
-        setPackName(p.pack_id);
-        setQuestions(p.fields.length);
-      })
-      .catch(() => {
-        // Offline is fine here. The card degrades to its static labels rather
-        // than showing an error on a marketing page.
-      });
   }, []);
+
+  const featured = FEATURED.find((f) => f.pack === active)!;
+  const pack = packs.find((p) => p.pack_id === active);
+  const name = pack?.agent?.name ?? "Lucy";
+  const line = pack?.agent?.greeting ?? `Hi, I'm ${name}. I'll take you through a few short questions.`;
+
+  // Bars follow the real audio while the agent is speaking, and rest otherwise.
+  function animate() {
+    const analyser = agentAnalyser();
+    const data = new Uint8Array(analyser?.frequencyBinCount ?? 0);
+    const loop = () => {
+      if (analyser) {
+        analyser.getByteFrequencyData(data);
+        const step = Math.max(1, Math.floor(data.length / 2 / BAR_COUNT));
+        setBars(Array.from({ length: BAR_COUNT }, (_, i) => Math.max(0.1, data[i * step] / 255)));
+      }
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+  }
+
+  async function hear() {
+    if (playing) {
+      stopSpeaking();
+      return;
+    }
+    setPlaying(true);
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const done = say(line, active);
+    if (!reduce) animate();
+    await done;
+    cancelAnimationFrame(rafRef.current);
+    setBars(IDLE);
+    setPlaying(false);
+  }
+
+  function pick(id: string) {
+    if (playing) stopSpeaking();
+    setActive(id);
+  }
 
   return (
     <div
-      className="w-full max-w-[352px] rounded-[26px] border p-6 text-center"
+      className="w-full max-w-[400px] rounded-[26px] border p-5 text-center"
       style={{
         background: "rgba(255,255,255,0.06)",
         borderColor: "rgba(255,255,255,0.10)",
@@ -69,83 +94,53 @@ export function AgentCard() {
         boxShadow: "0 30px 90px rgba(9,3,12,0.55), inset 0 1px 0 rgba(255,255,255,0.14)",
       }}
     >
-      <div
-        className="mx-auto grid h-14 w-14 place-items-center rounded-full"
-        style={{
-          background: "linear-gradient(140deg, #7DEBFF 0%, #6C7DFF 52%, #C87BFF 100%)",
-          boxShadow: "0 0 32px rgba(108,125,255,0.45)",
-        }}
-      >
-        <span className="text-[17px] font-bold text-[#0a0a12]">VG</span>
+      <div role="tablist" aria-label="Choose an industry" className="grid grid-cols-2 gap-1.5">
+        {FEATURED.map((f) => (
+          <button key={f.pack} role="tab" aria-selected={f.pack === active} onClick={() => pick(f.pack)}
+            className={`rounded-[var(--r-pill)] px-3 py-1.5 text-[12.5px] transition-colors ${
+              f.pack === active ? "bg-white/[0.12] font-semibold text-white" : "text-[#B7B7C2] hover:text-white"}`}>
+            {f.industry}
+          </button>
+        ))}
       </div>
 
-      <h2 className="mt-4 text-[16px] font-semibold tracking-tight">VoxGate Agent</h2>
-      <p className="mt-1 text-[13px] text-[#B7B7C2]">Compliance interviewer</p>
-
-      <div className="mt-4 flex flex-wrap justify-center gap-2">
-        <Pill>{packName ?? "kyc-uae"}</Pill>
-        <Pill>{questions ? `${questions} questions` : "Voice interview"}</Pill>
-      </div>
-
-      <div className="mt-5 flex items-center gap-4">
-        <button
-          type="button"
-          onClick={() => setPlaying((p) => !p)}
-          aria-label={playing ? "Pause the sample waveform" : "Play the sample waveform"}
-          aria-pressed={playing}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-full border transition-transform active:scale-[0.95]"
-          style={{
-            background: "rgba(255,255,255,0.08)",
-            borderColor: "rgba(255,255,255,0.12)",
-          }}
-        >
-          <Play size={15} weight="fill" color="#FFFFFF" />
-        </button>
-
-        <div className="flex h-8 flex-1 items-center gap-[3px]" aria-hidden="true">
-          {BARS.map((h, i) => {
-            // A slow travelling envelope over the fixed pattern. Reads as speech
-            // energy moving through the buffer rather than random flicker.
-            const wave = playing
-              ? 0.55 + 0.45 * Math.sin((i * 0.55) - tick * 0.22)
-              : 0.45;
-            return (
-              <span
-                key={i}
-                className="flex-1 rounded-full"
-                style={{
-                  height: `${Math.max(0.12, h * wave) * 100}%`,
-                  background: "linear-gradient(180deg, #7DEBFF, #6C7DFF)",
-                  opacity: playing ? 0.5 + 0.45 * wave : 0.3,
-                  transition: "height 110ms linear, opacity 110ms linear",
-                }}
-              />
-            );
-          })}
+      <div className="mt-5 flex items-center gap-3.5 text-left">
+        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full text-[17px] font-bold text-[#0a0a12]"
+          style={{ background: "var(--siri-gradient)", boxShadow: "0 0 32px rgba(108,125,255,0.45)" }}>
+          {name[0]}
+        </div>
+        <div className="min-w-0">
+          <p key={name} className="land text-[16px] font-semibold tracking-tight text-white">{name}</p>
+          <p className="truncate text-[12.5px] text-[#B7B7C2]">{featured.voice}</p>
         </div>
       </div>
 
-      <Link
-        href="/apply"
-        className="mt-5 block rounded-[var(--r-pill)] py-2.5 text-[14.5px] font-semibold text-[#0a0a12] transition-transform active:scale-[0.98]"
-        style={{ background: "linear-gradient(120deg, #7DEBFF, #6C7DFF 52%, #C87BFF)" }}
-      >
-        Start an interview
+      <div className="mt-4 flex items-center gap-3.5">
+        <button type="button" onClick={() => void hear()}
+          aria-label={playing ? `Stop ${name}` : `Hear ${name}'s voice`}
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-full border transition-transform active:scale-[0.95]"
+          style={{ background: "rgba(255,255,255,0.08)", borderColor: "rgba(255,255,255,0.12)" }}>
+          {playing ? <Pause size={15} weight="fill" color="#FFFFFF" /> : <Play size={15} weight="fill" color="#FFFFFF" />}
+        </button>
+        <div className="flex h-9 flex-1 items-center gap-[3px]" aria-hidden="true">
+          {bars.map((h, i) => (
+            <span key={i} className="flex-1 rounded-full"
+              style={{
+                height: `${Math.min(1, h) * 100}%`,
+                background: "linear-gradient(180deg, #7DEBFF, #6C7DFF)",
+                opacity: playing ? 0.95 : 0.35,
+                transition: "height 80ms linear, opacity 200ms linear",
+              }} />
+          ))}
+        </div>
+      </div>
+      <p className="mt-2 text-left text-[11.5px] text-[#7a7490]">{playing ? `${name} is speaking` : `Press play to hear ${name}`}</p>
+
+      <Link href={`/apply?pack=${active}`}
+        className="mt-4 flex items-center justify-center gap-2 rounded-[var(--r-pill)] py-2.5 text-[14.5px] font-semibold text-[#0a0a12] transition-transform active:scale-[0.98]"
+        style={{ background: "linear-gradient(120deg, #7DEBFF, #6C7DFF 52%, #C87BFF)" }}>
+        Talk to {name} <ArrowRight size={15} weight="bold" />
       </Link>
     </div>
-  );
-}
-
-function Pill({ children }: { children: React.ReactNode }) {
-  return (
-    <span
-      className="rounded-[var(--r-pill)] border px-3 py-1.5 text-[12px] text-[#B7B7C2]"
-      style={{
-        background: "rgba(255,255,255,0.05)",
-        borderColor: "rgba(255,255,255,0.09)",
-      }}
-    >
-      {children}
-    </span>
   );
 }
