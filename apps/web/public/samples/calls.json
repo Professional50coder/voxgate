@@ -1,0 +1,194 @@
+[
+  {
+    "pack": "kyc-uae",
+    "title": "Banking KYC",
+    "agent": "Lucy",
+    "shows": "A card number refused, then a correction",
+    "turns": [
+      {
+        "role": "agent",
+        "text": "Hi, I'm Lucy. I'll take you through a short identity check for your new account. It takes about three minutes. Could you spell your full name for me, please?",
+        "audio": "/samples/kyc-uae/00.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Sure. It's Omar Haddad, O-M-A-R, H-A-D-D-A-D.",
+        "audio": "/samples/kyc-uae/01.mp3"
+      },
+      {
+        "role": "agent",
+        "text": "Thank you. Could you give me your date of birth again — day, month and year?",
+        "audio": "/samples/kyc-uae/02.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Twelfth of June 1991. Do you need my card number to link the account?",
+        "audio": "/samples/kyc-uae/03.mp3"
+      },
+      {
+        "role": "agent",
+        "text": "Please do not share PINs, passwords, card numbers or one-time codes. We never need those, and I have not recorded what you just said. Which country issued your passport?",
+        "audio": "/samples/kyc-uae/04.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Got it. Jordan. Actually no, sorry, my passport is Emirati now.",
+        "audio": "/samples/kyc-uae/05.mp3"
+      },
+      {
+        "role": "agent",
+        "text": "Of course, let us go back. Which country issued your passport?",
+        "audio": "/samples/kyc-uae/06.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Emirati.",
+        "audio": "/samples/kyc-uae/07.mp3"
+      }
+    ]
+  },
+  {
+    "pack": "patient-intake",
+    "title": "Patient intake",
+    "agent": "Iris",
+    "shows": "A process question answered, then back on track",
+    "turns": [
+      {
+        "role": "agent",
+        "text": "Hello, I'm Iris from the clinic. I'll ask a few questions before your visit so the nurse is ready for you. Could you tell me your full name?",
+        "audio": "/samples/patient-intake/00.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Hi, it's Priya Nair.",
+        "audio": "/samples/patient-intake/01.mp3"
+      },
+      {
+        "role": "agent",
+        "text": "Thank you. What is the main problem you are coming in with?",
+        "audio": "/samples/patient-intake/02.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Before that, who actually sees what I tell you?",
+        "audio": "/samples/patient-intake/03.mp3"
+      },
+      {
+        "role": "agent",
+        "text": "Only the clinical team sees your answers, and they are stored with your patient record. What is the main problem you are coming in with?",
+        "audio": "/samples/patient-intake/04.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Okay. A sharp pain in my lower back, mostly in the mornings.",
+        "audio": "/samples/patient-intake/05.mp3"
+      },
+      {
+        "role": "agent",
+        "text": "Thank you. How long has this been going on?",
+        "audio": "/samples/patient-intake/06.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "About three weeks now.",
+        "audio": "/samples/patient-intake/07.mp3"
+      }
+    ]
+  },
+  {
+    "pack": "sales-discovery",
+    "title": "Sales discovery",
+    "agent": "Skylar",
+    "shows": "Small talk, then an off-limits topic declined",
+    "turns": [
+      {
+        "role": "agent",
+        "text": "Hi, I'm Skylar. Thanks for making time. I'll ask a few quick questions so our team can tailor the conversation to you. Which company are you calling from?",
+        "audio": "/samples/sales-discovery/00.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Hey Skylar, nice to talk to you!",
+        "audio": "/samples/sales-discovery/01.mp3"
+      },
+      {
+        "role": "agent",
+        "text": "Thank you, nice to talk to you too. Which company are you calling from?",
+        "audio": "/samples/sales-discovery/02.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Northwind Logistics. Any chance of a discount code?",
+        "audio": "/samples/sales-discovery/03.mp3"
+      },
+      {
+        "role": "agent",
+        "text": "I can only help with your application on this call, but happy to keep going. Roughly how many people are in the team that would use this?",
+        "audio": "/samples/sales-discovery/04.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Fair enough. About forty people on the ops team.",
+        "audio": "/samples/sales-discovery/05.mp3"
+      },
+      {
+        "role": "agent",
+        "text": "Thank you. What is the single biggest problem you are trying to solve?",
+        "audio": "/samples/sales-discovery/06.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Our onboarding calls take forever and nothing is written down.",
+        "audio": "/samples/sales-discovery/07.mp3"
+      }
+    ]
+  },
+  {
+    "pack": "recruit-screen",
+    "title": "Recruiting screen",
+    "agent": "Victoria",
+    "shows": "A vague answer, then a helpful re-ask",
+    "turns": [
+      {
+        "role": "agent",
+        "text": "Hello, I'm Victoria from the recruiting team. This is a short screening call before you meet the hiring manager. Could I take your full name?",
+        "audio": "/samples/recruit-screen/00.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Daniel Okafor.",
+        "audio": "/samples/recruit-screen/01.mp3"
+      },
+      {
+        "role": "agent",
+        "text": "Thank you. How many years have you worked in this kind of role?",
+        "audio": "/samples/recruit-screen/02.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Hmm, I'm not sure how you'd count it.",
+        "audio": "/samples/recruit-screen/03.mp3"
+      },
+      {
+        "role": "agent",
+        "text": "Let me put that another way. How many years have you worked in this kind of role?",
+        "audio": "/samples/recruit-screen/04.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "Okay, six years, mostly in operations.",
+        "audio": "/samples/recruit-screen/05.mp3"
+      },
+      {
+        "role": "agent",
+        "text": "Thank you. What notice period would you need to give?",
+        "audio": "/samples/recruit-screen/06.mp3"
+      },
+      {
+        "role": "caller",
+        "text": "One month.",
+        "audio": "/samples/recruit-screen/07.mp3"
+      }
+    ]
+  }
+]

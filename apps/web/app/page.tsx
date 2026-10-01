@@ -20,6 +20,12 @@ import Link from "next/link";
 
 import { AgentCard } from "@/components/agent-card";
 import { ConsoleShowcase } from "@/components/console-showcase";
+import { RoiCalculator } from "@/components/roi-calculator";
+import { SampleCalls } from "@/components/sample-calls";
+
+// Where "Book a demo" goes. Unset hides the button rather than pointing it at
+// an address nobody reads.
+const CONTACT_EMAIL = process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? "";
 import { FeatureCard, StatCard } from "@/components/feature-card";
 import { GlassRibbons } from "@/components/glass-ribbons";
 import { Nav } from "@/components/nav";
@@ -608,6 +614,25 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Recorded calls, for visitors who will not turn their mic on. */}
+        <section id="calls" className={SECTION}>
+          <div className={SHELL}>
+            <Reveal>
+              <p className={EYEBROW}>Hear a real call</p>
+              <h2 className={`mt-5 max-w-[24ch] ${H2}`}>
+                Listen to an agent handle a real interview.
+              </h2>
+              <p className={LEAD}>
+                No microphone needed. Each call shows the agent dealing with something a form
+                never could.
+              </p>
+            </Reveal>
+            <Reveal delay={0.08}>
+              <div className="mt-12"><SampleCalls /></div>
+            </Reveal>
+          </div>
+        </section>
+
         {/* What the reviewer sees: the product a compliance buyer is buying. */}
         <section id="reviewer" className={SECTION}>
           <div className={SHELL}>
@@ -629,37 +654,68 @@ export default function Home() {
           </div>
         </section>
 
+        {/* What it is worth, in the visitor's own numbers. */}
+        <section id="roi" className={SECTION}>
+          <div className={SHELL}>
+            <Reveal>
+              <p className={EYEBROW}>What it saves</p>
+              <h2 className={`mt-5 max-w-[24ch] ${H2}`}>
+                Put in your numbers.
+              </h2>
+              <p className={LEAD}>
+                Agents run the interviews; your people only review the cases that need them.
+              </p>
+            </Reveal>
+            <Reveal delay={0.08}>
+              <div className="mt-12"><RoiCalculator /></div>
+            </Reveal>
+          </div>
+        </section>
+
         {/* 10. Close. */}
         <section className={SECTION}>
           <div className={SHELL}>
             <Reveal>
               <div className="glass rounded-[var(--r-card)] px-8 py-14 text-center md:px-16 md:py-20">
                 <h2 className={`mx-auto max-w-[20ch] ${H2}`}>
-                  Watch a case run end to end.
+                  Talk to an agent in the next ten seconds.
                 </h2>
                 <p className="mx-auto mt-6 max-w-[54ch] text-base leading-relaxed text-text-dim">
-                  The console shows the live pipeline, the score broken down by
-                  contribution, and the reviewer gate as it opens.
+                  Try the interview yourself, free, in your browser. Or bring your use case and we
+                  will build your agent with you.
                 </p>
                 <div className="mt-9 flex flex-wrap justify-center gap-3">
                   <Link
-                    href="/console"
+                    href="/apply"
                     className="inline-flex items-center gap-2 rounded-[var(--r-pill)] px-7 py-3.5 text-[14.5px] font-semibold text-[#0a0a12] transition-transform active:scale-[0.98]"
                     style={{ background: "var(--siri-gradient)" }}
                   >
-                    Open console
+                    Try it free
                     <ArrowRight size={16} weight="bold" />
                   </Link>
-                  <Link
-                    href="/apply"
-                    className="inline-flex items-center gap-2 rounded-[var(--r-pill)] border px-7 py-3.5 text-[14.5px] font-medium text-white transition-colors active:scale-[0.98]"
-                    style={{
-                      background: "rgba(255,255,255,0.06)",
-                      borderColor: "rgba(255,255,255,0.12)",
-                    }}
-                  >
-                    Take the interview yourself
-                  </Link>
+                  {CONTACT_EMAIL ? (
+                    <a
+                      href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("VoxGate demo")}`}
+                      className="inline-flex items-center gap-2 rounded-[var(--r-pill)] border px-7 py-3.5 text-[14.5px] font-medium text-white transition-colors active:scale-[0.98]"
+                      style={{
+                        background: "rgba(255,255,255,0.06)",
+                        borderColor: "rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      Book a demo
+                    </a>
+                  ) : (
+                    <Link
+                      href="/how-it-works"
+                      className="inline-flex items-center gap-2 rounded-[var(--r-pill)] border px-7 py-3.5 text-[14.5px] font-medium text-white transition-colors active:scale-[0.98]"
+                      style={{
+                        background: "rgba(255,255,255,0.06)",
+                        borderColor: "rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      See how it works
+                    </Link>
+                  )}
                 </div>
               </div>
             </Reveal>
