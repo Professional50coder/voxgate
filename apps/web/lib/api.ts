@@ -62,8 +62,6 @@ export type AssistantReply = {
   action: AssistantAction;
   suggestions: string[];
   source: "llm" | "offline";
-  model: string | null;
-  ms: number;
 };
 
 export type CaseInterrupt = {

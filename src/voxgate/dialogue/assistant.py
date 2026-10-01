@@ -14,7 +14,6 @@ no key the assistant still answers, from keyword matching on the same sheet.
 from __future__ import annotations
 
 import re
-import time
 
 from voxgate.config import Settings, get_settings
 
@@ -126,7 +125,6 @@ def answer(message: str, *, page: str = "home", history: list[dict] | None = Non
            settings: Settings | None = None) -> dict:
     settings = settings or get_settings()
     page = page if page in PAGES else "home"
-    t0 = time.perf_counter()
     keys = settings.groq_key_pool()
     if keys:
         from voxgate.ml.groq_client import GroqError, structured_call
@@ -145,14 +143,13 @@ def answer(message: str, *, page: str = "home", history: list[dict] | None = Non
             action = content["action"] if content["action"] in ACTIONS else "none"
             return {"reply": content["reply"].strip(), "action": action,
                     "suggestions": [str(s)[:80] for s in content["suggestions"]][:3],
-                    "source": "llm", "model": result.model,
-                    "ms": round((time.perf_counter() - t0) * 1000, 1)}
+                    "source": "llm"}
         except GroqError:
             pass
-    return _offline(message, t0)
+    return _offline(message)
 
 
-def _offline(message: str, t0: float) -> dict:
+def _offline(message: str) -> dict:
     for pattern, reply, action in _FAQ:
         if re.search(pattern, message or "", re.I):
             break
@@ -161,5 +158,4 @@ def _offline(message: str, t0: float) -> dict:
                          "start a demo interview. Which would help?"), "none"
     return {"reply": reply, "action": action,
             "suggestions": ["How does it work?", "Is my data safe?", "Start a demo"],
-            "source": "offline", "model": None,
-            "ms": round((time.perf_counter() - t0) * 1000, 1)}
+            "source": "offline"}

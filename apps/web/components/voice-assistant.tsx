@@ -1,6 +1,8 @@
 "use client";
 
-import { Microphone, PaperPlaneRight, Sparkle, Stop, X } from "@phosphor-icons/react";
+import {
+  Microphone, PaperPlaneRight, PhoneDisconnect, Sparkle, SpeakerHigh, SpeakerSlash, X,
+} from "@phosphor-icons/react";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -10,7 +12,6 @@ import { createRecognizer, speechSupported, type Recognizer } from "@/lib/speech
 import { agentAnalyser, say, stopSpeaking } from "@/lib/voice";
 
 type Turn = { role: "user" | "assistant"; text: string };
-type Latency = { brainMs: number | null; firstAudioMs: number | null; via: string; model: string | null };
 
 const PAGE_FOR: [RegExp, string][] = [
   [/^\/how-it-works/, "how-it-works"],
@@ -27,13 +28,58 @@ const OPENERS: Record<string, string> = {
   apply: "What will the interview be like?",
 };
 
+/** What Lucy says when she opens herself, per page. Short: it is unprompted. */
+const GREETINGS: Record<string, string> = {
+  "how-it-works": "Hi, I'm Lucy. I'll walk you through how VoxGate works as you scroll. Tap to talk and ask me anything.",
+  home: "Hi, I'm Lucy. I can tell you what VoxGate does for your business, or start a demo interview. Tap to talk anytime.",
+  console: "Hi, I'm Lucy. Ask me what needs your attention in the queue.",
+  agents: "Hi, I'm Lucy. Tell me your use case and I'll help you design the agent.",
+};
+
 /** Fired for actions the page itself should perform, e.g. highlighting a step. */
 export const ASSISTANT_EVENT = "voxgate:assistant-action";
+/** Fired by a page to have Lucy say something, e.g. when a section scrolls in. */
+export const NARRATE_EVENT = "voxgate:narrate";
+
+/** Ask Lucy to say a line, if she is free and the visitor has not muted her. */
+export function narrate(text: string) {
+  window.dispatchEvent(new CustomEvent(NARRATE_EVENT, { detail: text }));
+}
+
+const MUTE_KEY = "voxgate.assistant.muted";
+const GREETED_KEY = "voxgate.assistant.greeted";
+// Scrolled this far, the visitor is reading, not bouncing: a good moment to say hi.
+const GREET_AFTER_PX = 240;
+// Silent listens in a row before a hands-free conversation ends by itself.
+const MAX_SILENT_LISTENS = 2;
+
+function readStore(storage: "local" | "session", key: string): string | null {
+  try {
+    return (storage === "local" ? localStorage : sessionStorage).getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStore(storage: "local" | "session", key: string, value: string) {
+  try {
+    (storage === "local" ? localStorage : sessionStorage).setItem(key, value);
+  } catch {
+    // Private mode or blocked storage: the preference lasts for this page only.
+  }
+}
 
 /**
  * VoxGate's voice assistant. One brain (/assistant), a persona per page, the
  * agent's human voice (/tts) and a closed set of actions it can take on the
- * site. Talk or type; talking over it stops it, the way a person would.
+ * site.
+ *
+ * "Tap to talk" starts a hands-free conversation: Lucy listens, answers, and
+ * listens again until the visitor ends it or goes quiet. Talking over her
+ * stops her, the way a person would. She opens herself when a visitor starts
+ * reading, and can narrate a page as it scrolls, but only speaks aloud after
+ * the visitor's first click or key press (browsers block sound before that)
+ * and never once they have muted her.
  */
 export function VoiceAssistant({
   inline = false,
@@ -50,25 +96,117 @@ export function VoiceAssistant({
 
   const [open, setOpen] = useState(inline);
   const [orb, setOrb] = useState<OrbState>("idle");
-  const [turns, setTurns] = useState<Turn[]>([]);
+  const [turns, setTurns] = useState<Turn[]>(() =>
+    inline ? [{ role: "assistant", text: GREETINGS[page] ?? GREETINGS.home }] : []);
   const [caption, setCaption] = useState("");
   const [input, setInput] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([OPENERS[page] ?? OPENERS.home]);
-  const [latency, setLatency] = useState<Latency | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState(false);
+  const [muted, setMuted] = useState(false);
+
   const recRef = useRef<Recognizer | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const turnsRef = useRef<Turn[]>([]);
+  const liveRef = useRef(false);
+  const mutedRef = useRef(false);
+  const busyRef = useRef(false);
+  const unlockedRef = useRef(false);
+  const pendingRef = useRef<string | null>(null);
+  const silentRef = useRef(0);
+  const startListeningRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     turnsRef.current = turns;
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
   }, [turns]);
 
+  useEffect(() => {
+    liveRef.current = live;
+  }, [live]);
+
+  // Restore the visitor's mute choice after hydration; storage is client-only.
+  useEffect(() => {
+    const stored = readStore("local", MUTE_KEY) === "1";
+    mutedRef.current = stored;
+    if (stored) queueMicrotask(() => setMuted(true));
+  }, []);
+
   useEffect(() => () => {
     recRef.current?.abort();
     stopSpeaking();
   }, []);
+
+  /** Speak aloud if allowed; otherwise hold the line for the first gesture. */
+  const speakOut = useCallback(async (text: string) => {
+    if (mutedRef.current) return;
+    if (!unlockedRef.current) {
+      pendingRef.current = text;
+      return;
+    }
+    setOrb("speaking");
+    await say(text);
+    setOrb((o) => (o === "speaking" ? "idle" : o));
+  }, []);
+
+  // Browsers allow sound only after a click, tap or key press. The first one
+  // anywhere on the page unlocks Lucy and plays whatever she was waiting to say.
+  useEffect(() => {
+    const unlock = () => {
+      if (unlockedRef.current) return;
+      unlockedRef.current = true;
+      const pending = pendingRef.current;
+      pendingRef.current = null;
+      if (pending && !busyRef.current && !liveRef.current) void speakOut(pending);
+    };
+    const opts = { capture: true, passive: true } as const;
+    window.addEventListener("pointerdown", unlock, opts);
+    window.addEventListener("keydown", unlock, opts);
+    return () => {
+      window.removeEventListener("pointerdown", unlock, opts);
+      window.removeEventListener("keydown", unlock, opts);
+    };
+  }, [speakOut]);
+
+  const greet = useCallback(() => {
+    const line = GREETINGS[page] ?? GREETINGS.home;
+    setTurns((t) => (t.length ? t : [{ role: "assistant", text: line }]));
+    void speakOut(line);
+  }, [page, speakOut]);
+
+  // Embedded on a page: the greeting is already in the log (initial state);
+  // queue it to be spoken at the visitor's first click or key press.
+  useEffect(() => {
+    if (inline && !mutedRef.current) pendingRef.current = GREETINGS[page] ?? GREETINGS.home;
+  }, [inline, page]);
+
+  // Floating: open and say hello once the visitor starts reading, once per
+  // session, and never again after they have closed her.
+  useEffect(() => {
+    if (inline || readStore("session", GREETED_KEY)) return;
+    const onScroll = () => {
+      if (window.scrollY < GREET_AFTER_PX) return;
+      window.removeEventListener("scroll", onScroll);
+      writeStore("session", GREETED_KEY, "1");
+      setOpen(true);
+      greet();
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [inline, greet]);
+
+  // Pages narrate sections through an event. Skipped while a conversation is
+  // under way: interrupting the visitor to describe the page would be rude.
+  useEffect(() => {
+    const onNarrate = (e: Event) => {
+      const text = (e as CustomEvent<string>).detail;
+      if (!text || busyRef.current || liveRef.current) return;
+      setTurns((t) => [...t, { role: "assistant", text }]);
+      void speakOut(text);
+    };
+    window.addEventListener(NARRATE_EVENT, onNarrate);
+    return () => window.removeEventListener(NARRATE_EVENT, onNarrate);
+  }, [speakOut]);
 
   const act = useCallback((action: AssistantAction) => {
     if (action === "none") return;
@@ -85,6 +223,7 @@ export function VoiceAssistant({
   const send = useCallback(async (text: string) => {
     const message = text.trim();
     if (!message) return;
+    busyRef.current = true;
     setError(null);
     setInput("");
     setCaption("");
@@ -92,35 +231,32 @@ export function VoiceAssistant({
     setTurns([...history, { role: "user", text: message }]);
     setOrb("thinking");
     try {
-      const t0 = performance.now();
       const r = await askAssistant(message, page, history, context);
-      const brainMs = Math.round(performance.now() - t0);
       setTurns((t) => [...t, { role: "assistant", text: r.reply }]);
       setSuggestions(r.suggestions.length ? r.suggestions : []);
-      setLatency({ brainMs, firstAudioMs: null, via: "…", model: r.model });
-      setOrb("speaking");
-      // Act as it starts talking, not after: "taking you there" should move.
+      // Act as she starts talking, not after: "taking you there" should move.
       act(r.action);
-      const spoken = await say(r.reply);
-      setLatency({ brainMs, firstAudioMs: spoken.firstAudioMs, via: spoken.via, model: r.model });
+      await speakOut(r.reply);
     } catch (err) {
-      setError(err instanceof ApiUnreachable ? "The assistant is offline right now." : "Something went wrong. Try again.");
+      setError(err instanceof ApiUnreachable ? "Lucy is offline right now." : "Something went wrong. Try again.");
+      setLive(false);
     } finally {
+      busyRef.current = false;
       setOrb("idle");
     }
-  }, [act, context, page]);
+    // Hands-free: her turn is over, so it is the visitor's again.
+    if (liveRef.current) startListeningRef.current();
+  }, [act, context, page, speakOut]);
 
-  const listen = useCallback(() => {
-    if (orb === "listening") {
-      recRef.current?.stop();
-      return;
-    }
-    stopSpeaking(); // talking over the agent interrupts it
+  const startListening = useCallback(() => {
+    stopSpeaking(); // talking over Lucy interrupts her
     const rec = createRecognizer();
     if (!rec) {
-      setError("Voice input needs Chrome or Edge. You can type instead.");
+      setError("Voice needs Chrome or Edge. You can type instead.");
+      setLive(false);
       return;
     }
+    recRef.current?.abort();
     recRef.current = rec;
     let finalText = "";
     rec.onresult = (e) => {
@@ -133,19 +269,70 @@ export function VoiceAssistant({
       setCaption(finalText || interim);
     };
     rec.onend = () => {
-      setOrb("idle");
-      if (finalText.trim()) void send(finalText);
+      if (recRef.current !== rec) return;
+      setOrb((o) => (o === "listening" ? "idle" : o));
+      if (finalText.trim()) {
+        silentRef.current = 0;
+        void send(finalText);
+      } else if (liveRef.current) {
+        silentRef.current += 1;
+        if (silentRef.current >= MAX_SILENT_LISTENS) setLive(false);
+        else startListeningRef.current();
+      }
     };
-    rec.onerror = () => setOrb("idle");
+    rec.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        setError("Allow the microphone to talk to Lucy, or type below.");
+        setLive(false);
+      }
+    };
     setOrb("listening");
     rec.start();
-  }, [orb, send]);
+  }, [send]);
+
+  useEffect(() => {
+    startListeningRef.current = startListening;
+  }, [startListening]);
+
+  function startConversation() {
+    unlockedRef.current = true;
+    pendingRef.current = null;
+    silentRef.current = 0;
+    setError(null);
+    setLive(true);
+    liveRef.current = true;
+    startListening();
+  }
+
+  function endConversation() {
+    setLive(false);
+    liveRef.current = false;
+    recRef.current?.abort();
+    recRef.current = null;
+    stopSpeaking();
+    setCaption("");
+    setOrb("idle");
+  }
+
+  function toggleMute() {
+    const next = !mutedRef.current;
+    mutedRef.current = next;
+    setMuted(next);
+    writeStore("local", MUTE_KEY, next ? "1" : "0");
+    if (next) stopSpeaking();
+  }
+
+  function close() {
+    endConversation();
+    writeStore("session", GREETED_KEY, "1");
+    setOpen(false);
+  }
 
   if (!inline && !open) {
     return (
       <button
         onClick={() => setOpen(true)}
-        aria-label="Talk to the VoxGate assistant"
+        aria-label="Talk to Lucy, the VoxGate assistant"
         className="fixed bottom-5 right-5 z-[70] flex items-center gap-2.5 rounded-[var(--r-pill)] py-2.5 pl-3 pr-4 text-[13.5px] font-semibold text-[#0a0a12] shadow-[0_18px_50px_-12px_rgba(200,123,255,0.55)] transition-transform hover:scale-[1.03] active:scale-[0.98]"
         style={{ background: "var(--siri-gradient)" }}
       >
@@ -158,13 +345,17 @@ export function VoiceAssistant({
     );
   }
 
+  const status = live
+    ? orb === "listening" ? "Listening… just talk" : orb === "thinking" ? "Thinking" : orb === "speaking" ? "Speaking · talk to interrupt" : "In conversation"
+    : orb === "thinking" ? "Thinking" : orb === "speaking" ? "Speaking" : "";
+
   const panel = (
     <div
       className={`glass flex flex-col overflow-hidden rounded-[var(--r-card)] ${
-        inline ? "h-[560px] w-full" : "h-[min(600px,calc(100dvh-40px))] w-[min(400px,calc(100vw-32px))]"
+        inline ? "h-[580px] w-full" : "h-[min(620px,calc(100dvh-40px))] w-[min(400px,calc(100vw-32px))]"
       }`}
       role="region"
-      aria-label="VoxGate voice assistant"
+      aria-label="Lucy, the VoxGate voice assistant"
     >
       <div className="flex items-center justify-between border-b border-glass-border-soft px-4 py-3">
         <div className="flex items-center gap-2.5">
@@ -173,14 +364,21 @@ export function VoiceAssistant({
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[var(--color-status-approved)]" />
           </span>
           <span className="text-[13.5px] font-semibold">Lucy</span>
-          <span className="text-[12px] text-text-faint">VoxGate voice assistant</span>
+          <span className="text-[12px] text-text-faint">VoxGate assistant</span>
         </div>
-        {!inline ? (
-          <button onClick={() => { stopSpeaking(); setOpen(false); }} aria-label="Close assistant"
+        <div className="flex items-center gap-1">
+          <button onClick={toggleMute} aria-pressed={muted} aria-label={muted ? "Unmute Lucy" : "Mute Lucy"}
+            title={muted ? "Unmute" : "Mute"}
             className="grid h-8 w-8 place-items-center rounded-full text-text-dim hover:bg-white/[0.06] hover:text-text">
-            <X size={16} />
+            {muted ? <SpeakerSlash size={16} /> : <SpeakerHigh size={16} />}
           </button>
-        ) : null}
+          {!inline ? (
+            <button onClick={close} aria-label="Close assistant"
+              className="grid h-8 w-8 place-items-center rounded-full text-text-dim hover:bg-white/[0.06] hover:text-text">
+              <X size={16} />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex justify-center pt-3">
@@ -189,16 +387,10 @@ export function VoiceAssistant({
         </div>
       </div>
       <p className="h-5 text-center text-[11.5px] uppercase tracking-[0.16em] text-text-faint" aria-live="polite">
-        {orb === "listening" ? "Listening" : orb === "thinking" ? "Thinking" : orb === "speaking" ? "Speaking" : ""}
+        {status}
       </p>
 
       <div ref={logRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3" role="log" aria-live="polite">
-        {turns.length === 0 ? (
-          <p className="text-[13.5px] leading-relaxed text-text-dim">
-            Hi, I&apos;m Lucy. Ask me anything about VoxGate, out loud or by typing. I can also take you
-            where you need to go.
-          </p>
-        ) : null}
         {turns.map((t, i) => (
           <div key={i} className={t.role === "user" ? "flex justify-end" : ""}>
             <p className={`max-w-[88%] rounded-[12px] px-3 py-2 text-[13.5px] leading-relaxed ${
@@ -212,7 +404,7 @@ export function VoiceAssistant({
         {error ? <p className="text-[12.5px] text-[var(--color-status-needs-attention)]">{error}</p> : null}
       </div>
 
-      {suggestions.length ? (
+      {suggestions.length && !live ? (
         <div className="flex flex-wrap gap-1.5 px-4 pb-2">
           {suggestions.map((s) => (
             <button key={s} onClick={() => void send(s)} disabled={orb === "thinking"}
@@ -223,29 +415,30 @@ export function VoiceAssistant({
         </div>
       ) : null}
 
-      <div className="flex items-center gap-2 border-t border-glass-border-soft p-2">
-        <button onClick={listen} disabled={orb === "thinking" || !speechSupported()}
-          aria-label={orb === "listening" ? "Stop listening" : "Talk to Lucy"}
-          className={`grid h-10 w-10 shrink-0 place-items-center rounded-full transition-colors disabled:opacity-30 ${
-            orb === "listening" ? "bg-[var(--color-status-rejected)]/25 text-text" : "text-text-dim hover:bg-white/[0.06] hover:text-text"
-          }`}>
-          {orb === "listening" ? <Stop size={17} weight="fill" /> : <Microphone size={18} weight="fill" />}
-        </button>
-        <input value={input} onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") void send(input); }}
-          placeholder="Ask about VoxGate…" aria-label="Message the assistant"
-          className="h-10 w-full min-w-0 bg-transparent px-1 text-[14px] text-text outline-none placeholder:text-text-faint" />
-        <button onClick={() => void send(input)} disabled={!input.trim() || orb === "thinking"} aria-label="Send"
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#0a0a12] disabled:opacity-25"
-          style={{ background: "var(--siri-gradient)" }}>
-          <PaperPlaneRight size={16} weight="fill" />
-        </button>
-      </div>
-
-      <div className="flex justify-between border-t border-glass-border-soft px-4 py-1.5 font-mono text-[10.5px] text-text-faint"
-        style={{ fontFamily: "var(--font-geist-mono), monospace" }}>
-        <span>brain {latency?.brainMs ?? "–"} ms{latency?.model ? ` · ${latency.model.split("/").pop()}` : ""}</span>
-        <span>voice {latency?.firstAudioMs ?? "–"} ms · {latency?.via ?? "–"}</span>
+      <div className="border-t border-glass-border-soft p-3">
+        {live ? (
+          <button onClick={endConversation}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-[var(--r-pill)] bg-[var(--color-status-rejected)]/20 text-[14px] font-semibold text-text transition-colors hover:bg-[var(--color-status-rejected)]/30">
+            <PhoneDisconnect size={18} weight="fill" /> End conversation
+          </button>
+        ) : (
+          <button onClick={startConversation} disabled={!speechSupported()}
+            title={speechSupported() ? "Talk to Lucy hands-free" : "Voice needs Chrome or Edge"}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-[var(--r-pill)] text-[14px] font-semibold text-[#0a0a12] transition-transform active:scale-[0.98] disabled:opacity-40"
+            style={{ background: "var(--siri-gradient)" }}>
+            <Microphone size={18} weight="fill" /> Tap to talk
+          </button>
+        )}
+        <div className="mt-2 flex items-center gap-2">
+          <input value={input} onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void send(input); }}
+            placeholder="Or type a question…" aria-label="Message Lucy"
+            className="h-9 w-full min-w-0 rounded-[var(--r-pill)] border border-glass-border-soft bg-transparent px-3.5 text-[13.5px] text-text outline-none placeholder:text-text-faint focus:border-[var(--color-siri-2)]" />
+          <button onClick={() => void send(input)} disabled={!input.trim() || orb === "thinking"} aria-label="Send"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-glass-border text-text-dim hover:text-text disabled:opacity-25">
+            <PaperPlaneRight size={15} weight="fill" />
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -3,7 +3,7 @@
 import { Lightning, Microphone, Play, ShieldCheck, SpeakerHigh, Stop } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { ASSISTANT_EVENT, VoiceAssistant } from "@/components/voice-assistant";
+import { ASSISTANT_EVENT, VoiceAssistant, narrate } from "@/components/voice-assistant";
 import { type Pack, type Understanding, getPacks, understand } from "@/lib/api";
 import { createRecognizer, speechSupported } from "@/lib/speech";
 import { say, stopSpeaking } from "@/lib/voice";
@@ -11,10 +11,17 @@ import { say, stopSpeaking } from "@/lib/voice";
 const STEPS = [
   { title: "Pick or publish a pack", body: "Questions, checks, scoring and the agent's persona, in one folder. Nine ship today." },
   { title: "The applicant talks", body: "In the browser or on a call. Regulated questions are read word for word, never reworded." },
-  { title: "Two-layer understanding", body: "The agent's own rules and the platform's patterns first, in under a millisecond. Only what they can't place goes to a fast model." },
+  { title: "Every answer understood", body: "The agent's own rules catch small talk, refusals and sensitive data instantly. Everything else is understood by AI and checked against what the pack allows." },
   { title: "Checks and an explainable score", body: "Sanctions, PEP and adverse media screening, plus a scorecard where every contribution is attributable." },
   { title: "A person decides", body: "Low risk is approved automatically. Everything else pauses for a reviewer, with transcript, summary and evidence." },
 ];
+
+/** What Lucy says as each section comes into view. One or two sentences. */
+const NARRATION: Record<string, string> = {
+  pipeline: "Here's the whole journey in five steps. A pack defines the interview, the applicant talks, every answer is understood and checked, and a person makes the final call.",
+  agents: "Each of these agents has its own name, voice and house rules. Press play on any card to hear them.",
+  playground: "Now try to trip one up. Say something off topic, or read out a card number, and watch how the agent handles it.",
+};
 
 const VOICE_NAMES: Record<string, string> = {
   "2f251ac3-89a9-4a77-a452-704b474ccd01": "Lucy · British",
@@ -26,6 +33,9 @@ const VOICE_NAMES: Record<string, string> = {
 
 const voiceName = (id?: string | null) => (id ? VOICE_NAMES[id] ?? "Custom voice" : "None");
 
+/** One plain speed figure for visitors: "0.2 ms" or "0.6 s", nothing more. */
+const formatSpeed = (ms: number) => (ms < 100 ? `${Math.max(ms, 0.1).toFixed(1)} ms` : `${(ms / 1000).toFixed(1)} s`);
+
 export function HowItWorks() {
   const [step, setStep] = useState(0);
   const [packs, setPacks] = useState<Pack[]>([]);
@@ -33,6 +43,25 @@ export function HowItWorks() {
   useEffect(() => {
     getPacks().then(setPacks).catch(() => setPacks([]));
   }, []);
+
+  // Lucy narrates each section once, the first time it is mostly on screen.
+  useEffect(() => {
+    const said = new Set<string>();
+    const io = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const id = entry.target.id;
+        if (entry.isIntersecting && NARRATION[id] && !said.has(id)) {
+          said.add(id);
+          narrate(NARRATION[id]);
+        }
+      }
+    }, { threshold: 0.45 });
+    for (const id of Object.keys(NARRATION)) {
+      const el = document.getElementById(id);
+      if (el) io.observe(el);
+    }
+    return () => io.disconnect();
+  }, [packs.length]);
 
   // The assistant drives the page: "next step" advances the pipeline, "show
   // packs" jumps to the agents, without the page knowing anything about it.
@@ -58,13 +87,12 @@ export function HowItWorks() {
             Don&apos;t read about it. <span className="gradient-text">Ask her.</span>
           </h1>
           <p className="mt-6 max-w-[48ch] text-[16px] leading-relaxed text-text-dim">
-            Lucy is a VoxGate voice agent. Talk to her and she will walk you through the pipeline,
-            answer your questions in her own voice, and take you wherever you need to go. Every reply
-            shows how long the brain and the voice took.
+            Lucy is a VoxGate voice agent. Talk to her and she will walk you through how it works,
+            answer your questions in her own voice, and take you wherever you need to go.
           </p>
           <ul className="mt-8 space-y-3 text-[14px] text-text-dim">
             <li className="flex gap-3"><Microphone size={18} className="mt-0.5 shrink-0 text-[var(--color-siri-1)]" />Press the mic and just talk. Talk over her to interrupt.</li>
-            <li className="flex gap-3"><Lightning size={18} className="mt-0.5 shrink-0 text-[var(--color-siri-2)]" />Rules answer in under a millisecond; the voice starts in about 200 ms.</li>
+            <li className="flex gap-3"><Lightning size={18} className="mt-0.5 shrink-0 text-[var(--color-siri-2)]" />She replies in a fraction of a second, like a real conversation.</li>
             <li className="flex gap-3"><ShieldCheck size={18} className="mt-0.5 shrink-0 text-[var(--color-siri-3)]" />She only talks about VoxGate, and never asks for personal data.</li>
           </ul>
         </div>
@@ -272,10 +300,10 @@ function Playground({ packs }: { packs: Pack[] }) {
               <span className="rounded-[var(--r-pill)] px-2.5 py-0.5 text-[11.5px] font-semibold text-[#0a0a12]"
                 style={{ background: INTENT_COLOR[r.intent] ?? "var(--color-text-dim)" }}>{r.intent.replace("_", " ")}</span>
               <span className="rounded-[var(--r-pill)] border border-glass-border px-2.5 py-0.5 text-[11.5px] text-text-dim">
-                {r.rule === "agent" ? `${pack.agent?.name}'s own rule` : "platform rule"}
+                {r.rule === "agent" ? `${pack.agent?.name}'s own rule` : "standard rule"}
               </span>
-              <span className="ml-auto font-mono text-[11.5px] text-text-faint" style={{ fontFamily: "var(--font-geist-mono), monospace" }}>
-                rules {r.timing_ms.understand} ms · model {r.timing_ms.extract} ms · round trip {r.rtt} ms
+              <span className="ml-auto text-[12px] text-text-faint">
+                Understood in {formatSpeed(r.timing_ms.total)}
               </span>
             </div>
             <p className="mt-3 text-[13.5px] text-text-dim">You: &ldquo;{r.said}&rdquo;</p>
