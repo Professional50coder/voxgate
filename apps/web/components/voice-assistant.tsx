@@ -259,6 +259,8 @@ export function VoiceAssistant({
     recRef.current?.abort();
     recRef.current = rec;
     let finalText = "";
+    // Unfinalised words still count: anything said gets an answer.
+    let lastInterim = "";
     rec.onresult = (e) => {
       let interim = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -266,14 +268,16 @@ export function VoiceAssistant({
         if (res.isFinal) finalText += res[0].transcript;
         else interim += res[0].transcript;
       }
+      lastInterim = interim;
       setCaption(finalText || interim);
     };
     rec.onend = () => {
       if (recRef.current !== rec) return;
       setOrb((o) => (o === "listening" ? "idle" : o));
-      if (finalText.trim()) {
+      const said = (finalText || lastInterim).trim();
+      if (said) {
         silentRef.current = 0;
-        void send(finalText);
+        void send(said);
       } else if (liveRef.current) {
         silentRef.current += 1;
         if (silentRef.current >= MAX_SILENT_LISTENS) setLive(false);

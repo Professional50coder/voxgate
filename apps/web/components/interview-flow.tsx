@@ -11,7 +11,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { CapturePanel } from "@/components/capture-panel";
+import { CapturePanel, humanize } from "@/components/capture-panel";
 import { OutcomeCard } from "@/components/outcome-card";
 import { VoiceOrb, type OrbState } from "@/components/voice-orb";
 import {
@@ -34,10 +34,9 @@ type Phase = "intro" | "interview" | "submitting" | "done" | "offline";
 const OPENING =
   "Hello. I will ask you a few questions to get your application started. Please answer out loud after each one.";
 
-// Above this the agent takes the answer and moves on by itself, the way a
-// person would; below it the value is put in the box for the applicant to
-// confirm or correct.
-const AUTO_ACCEPT = 0.75;
+// Silent listens (a pause, or the browser ending the mic early) re-asked by
+// voice before the page falls back to the mic button and the text box.
+const MAX_SILENT_RETRIES = 2;
 
 // Turns the agent will spend on one field before leaving it for a colleague.
 const MAX_TURNS_PER_FIELD = 4;
@@ -176,6 +175,10 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
       }
       recRef.current = rec;
       let finalText = "";
+      // Words the browser heard but had not finalised when it closed the mic.
+      // Dropping them made a spoken answer look like silence and stalled the
+      // interview, so they count as what the applicant said.
+      let lastInterim = "";
       rec.onresult = (event) => {
         let interim = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -183,10 +186,12 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
           if (res.isFinal) finalText += res[0].transcript;
           else interim += res[0].transcript;
         }
+        lastInterim = interim;
         setTranscript(finalText || interim);
       };
-      rec.onerror = () => resolve(finalText);
-      rec.onend = () => resolve(finalText);
+      const done = () => resolve((finalText || lastInterim).trim());
+      rec.onerror = done;
+      rec.onend = done;
       rec.start();
     });
   }, []);
@@ -212,6 +217,7 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
       const field = fields[index];
       if (!field || !pack) return ["skipped", ""];
       let line = opening;
+      let silences = 0;
       for (let turn = 0; turn < MAX_TURNS_PER_FIELD; turn++) {
         await speakAsAgent(line);
         setOrb("listening");
@@ -220,10 +226,19 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
         setTranscript(heard);
         record("applicant", heard);
         if (!heard.trim()) {
-          setNotice("I did not hear anything. Press the mic to try again, or type your answer.");
-          setOrb("idle");
-          return ["review", ""];
+          // A pause, or the browser closing the mic early, is not an answer
+          // and not a reason to stop: ask again and keep listening, twice.
+          silences += 1;
+          if (silences > MAX_SILENT_RETRIES) {
+            setNotice("I could not hear you. Press the mic to answer, or type it below.");
+            setOrb("idle");
+            return ["review", ""];
+          }
+          turn -= 1; // silence does not spend one of the field's turns
+          line = `Sorry, I didn't catch that. ${pack.reask_hints?.[field] ?? ""}`.trim();
+          continue;
         }
+        silences = 0;
         setOrb("thinking");
         let r;
         try {
@@ -237,10 +252,13 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
         }
         countersRef.current = r.counters;
         if (r.value) {
+          // The brain only returns a value it has already validated against
+          // the pack, so take it and move on. The read-back on the next line
+          // lets the applicant hear it and say "actually..." if it is wrong.
           setDraft(r.value);
           setConfidence((c) => ({ ...c, [field]: r.confidence }));
           setOrb("idle");
-          return [r.confidence >= AUTO_ACCEPT ? "accepted" : "review", r.value];
+          return ["accepted", r.value];
         }
         if (!r.prompt) break;
         line = r.prompt;
@@ -283,7 +301,9 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
 
     if (index + 1 < fields.length) {
       setFieldIndex(index + 1);
-      await askField(index + 1, bridge ?? (value ? "Thank you." : undefined));
+      // Read the answer back as the bridge to the next question, so a wrong
+      // capture is heard and can be corrected without anyone touching a key.
+      await askField(index + 1, bridge ?? (value ? `Got it, ${humanize(value)}.` : undefined));
       return;
     }
 
