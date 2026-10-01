@@ -28,6 +28,7 @@ Free-tier limits measured 2026-08-07, per key per model:
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -58,6 +59,29 @@ FALLBACK_CHAIN: list[str] = STRICT_MODELS + LENIENT_MODELS
 
 _discovery_cache: dict[str, Any] = {"at": 0.0, "strict": None, "lenient": None}
 _DISCOVERY_TTL = 900.0  # seconds
+
+# Per-process health marks, so a revoked key or a retired model costs one
+# failed request rather than one per call for the life of the process.
+_dead_keys: set[str] = set()                # 401/403: Groq rejected the key
+_key_cooldown: dict[str, float] = {}        # 429: monotonic time it may lead again
+_demoted_models: dict[str, float] = {}      # 404: monotonic time to retry it
+_COOLDOWN_SECS = 60.0
+
+
+def reset_health() -> None:
+    """Forget every health mark. For tests, and after rotating keys."""
+    _dead_keys.clear()
+    _key_cooldown.clear()
+    _demoted_models.clear()
+
+
+def key_health(keys: list[str]) -> list[dict[str, Any]]:
+    """Per-key status for an operator view. Never includes the key itself."""
+    now = time.monotonic()
+    return [{"index": i,
+             "status": "dead" if k in _dead_keys
+             else "cooling" if _key_cooldown.get(k, 0.0) > now else "ok"}
+            for i, k in enumerate(keys)]
 
 
 def _useful(model: dict[str, Any]) -> bool:
@@ -230,9 +254,16 @@ def structured_call(
     # Model-major, key-minor: exhaust every key on the best model before
     # degrading. Built explicitly so the order is inspectable, not implied by
     # loop nesting.
-    pairs = [(model, i, key)
-             for model in chain
-             for i, key in enumerate(keys)]
+    # Skip keys Groq has rejected and models it no longer serves, but never
+    # filter down to nothing: a stale mark must not turn into a hard outage.
+    now = time.monotonic()
+    usable_keys = [k for k in keys if k not in _dead_keys] or keys
+    usable_models = [m for m in chain if _demoted_models.get(m, 0.0) <= now] or chain
+    # Keys on a 429 cooldown go to the back of each model's turn, not out.
+    usable_keys.sort(key=lambda k: _key_cooldown.get(k, 0.0) > now)
+    pairs = [(model, keys.index(key), key)
+             for model in usable_models
+             for key in usable_keys]
 
     last_error: Exception | None = None
     rate_limited_all = True
@@ -281,7 +312,12 @@ def structured_call(
                 # retry rather than the same wall. No sleep: we are not retrying
                 # the same pair.
                 last_error = GroqRateLimited(f"{model} key#{key_index + 1} rate limited")
+                _key_cooldown[key] = time.monotonic() + _COOLDOWN_SECS
                 continue
+            if response.status_code in (401, 403):
+                _dead_keys.add(key)
+            elif response.status_code == 404:
+                _demoted_models[model] = time.monotonic() + _DISCOVERY_TTL
 
             response.raise_for_status()
             content = json.loads(response.json()["choices"][0]["message"]["content"])
