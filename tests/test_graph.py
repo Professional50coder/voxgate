@@ -57,6 +57,26 @@ def test_invalid_fields_trigger_reask_with_hints(pack):
     graph.invoke(Command(resume={"fields": CLEAN, "confidence": {}}), cfg)
     assert graph.get_state(cfg).values["status"] == "approved"
 
+MEDIUM = {"full_name": "Fatima Al Mansoori", "dob": "1990-03-05", "nationality": "AE",
+          "residency_status": "uae_resident", "source_of_funds": "salary", "product": "spot_trading"}
+
+def test_medium_band_reask_reports_awaiting_interview(pack):
+    graph = build_graph(pack, MemorySaver())
+    cfg = start(graph, pack)
+    graph.invoke(Command(resume={"fields": MEDIUM, "confidence": {}}), cfg)
+    s = graph.get_state(cfg).values
+    assert s["score"]["band"] == "medium"
+    assert interrupt_payload(graph, cfg)["type"] == "interview"
+    # Waiting on the applicant, not still screening.
+    assert s["status"] == "awaiting_interview"
+
+def test_validation_reask_reports_awaiting_interview(pack):
+    graph = build_graph(pack, MemorySaver())
+    cfg = start(graph, pack)
+    graph.invoke(Command(resume={"fields": {**CLEAN, "dob": "2020-01-01"}, "confidence": {}}), cfg)
+    assert interrupt_payload(graph, cfg)["type"] == "interview"
+    assert graph.get_state(cfg).values["status"] == "awaiting_interview"
+
 def test_reask_cap_forces_reviewer_gate(pack):
     graph = build_graph(pack, MemorySaver())
     cfg = start(graph, pack)

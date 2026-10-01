@@ -13,6 +13,7 @@ until a human has read the questions and approved them.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -33,7 +34,8 @@ Rules you must follow:
 - `risk` is 0..1: how much this answer should raise concern for the reviewer.
   A neutral or good answer is near 0. Never make every value high risk.
 - Questions are spoken aloud. Write them the way a polite person talks. No
-  field names, no jargon, no brackets, one question per field.
+  field names, no jargon, no brackets, one question per field. Every question
+  is phrased as a question and ends with a question mark.
 - Checks scan one field's answer for phrases that warrant attention. Give each
   a name that reads like what it detects (`affordability_strain`, not `check_1`).
 - Never ask for protected characteristics: race, religion, sexual orientation,
@@ -255,6 +257,24 @@ def slugify(text: str) -> str:
     return out.strip("-")[:40] or "custom-agent"
 
 
+_ASKS = re.compile(
+    r"^(what|which|how|when|where|who|whose|why|do|does|did|are|is|was|were|can|could|"
+    r"would|will|have|has|should|may)\b", re.I)
+
+
+def as_question(text: str) -> str:
+    """Give a spoken question its question mark when the model dropped it.
+
+    Only for sentences that open like a question ("What is your..."); an
+    instruction such as "Please describe the damage." is left alone, because
+    bolting a "?" on reads worse than the full stop, and validate_draft warns.
+    """
+    text = (text or "").strip()
+    if text and _ASKS.match(text) and not text.endswith("?"):
+        text = text.rstrip(".!") + "?"
+    return text
+
+
 def draft_pack(
     description: str,
     *,
@@ -299,6 +319,9 @@ def draft_pack(
         raise DraftError(f"Could not draft a pack: {exc}") from exc
 
     payload = result.content
+
+    for f in payload["fields"]:
+        f["question"] = as_question(f.get("question", ""))
 
     draft = PackDraft(
         pack_id=pack_id or slugify(payload["display_name"]),

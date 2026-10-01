@@ -84,8 +84,10 @@ def build_graph(pack: Pack, checkpointer, clock=None):
             return {"fields": clean}
         except ValidationError as e:
             errs = {err["loc"][0]: err["msg"] for err in e.errors() if err["loc"]}
+            # Back to the applicant. If the re-ask cap is exhausted the router
+            # sends it to the reviewer gate instead, which sets its own status.
             return {"reask_fields": sorted(errs), "reask_count": state["reask_count"] + 1,
-                    "field_errors": errs}
+                    "field_errors": errs, "status": "awaiting_interview"}
 
     def after_validate(state):
         if state.get("reask_fields"):
@@ -125,7 +127,10 @@ def build_graph(pack: Pack, checkpointer, clock=None):
         top = max(contributions, key=lambda c: c["contribution"], default=None)
         field = pack.feature_field_hints.get(top["feature"], "full_name") \
             if top is not None else "full_name"
-        return {"reask_fields": [field], "reask_count": state["reask_count"] + 1}
+        # Back to the interview, so say so: left at "processing", a case
+        # waiting on the applicant looked like one still being screened.
+        return {"reask_fields": [field], "reask_count": state["reask_count"] + 1,
+                "status": "awaiting_interview"}
 
     def auto_approve(state):
         return {"decision": {"action": "approve", "by": "system", "note": "low risk"},

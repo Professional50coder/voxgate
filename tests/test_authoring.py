@@ -238,3 +238,11 @@ def test_refuses_to_generate_protected_characteristics():
     assert flagged or not asked, (
         f"produced {names!r} with no warning, which is the one unacceptable outcome"
     )
+
+
+def test_as_question_adds_the_missing_mark_only_to_real_questions():
+    from voxgate.ml.authoring import as_question
+    assert as_question("What is your full name.") == "What is your full name?"
+    assert as_question("  How long has this been going on ") == "How long has this been going on?"
+    assert as_question("Are you a resident?") == "Are you a resident?"
+    assert as_question("Please describe the damage.") == "Please describe the damage."
