@@ -26,6 +26,7 @@ import { PipelineDiagram } from "@/components/pipeline-diagram";
 import { Reveal } from "@/components/reveal";
 import { ScrollProgress } from "@/components/scroll-progress";
 import { SpotlightCard } from "@/components/spotlight-card";
+import { TrustStrip } from "@/components/trust-strip";
 import { WaveRibbon } from "@/components/wave-ribbon";
 
 const SHELL = "mx-auto w-full max-w-[1200px] px-6";
@@ -126,6 +127,8 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        <TrustStrip />
 
         {/* Parametric wave band. */}
         <section className="relative h-[220px] overflow-hidden border-t border-glass-border-soft md:h-[280px]">
@@ -570,8 +573,8 @@ export default function Home() {
                 {
                   icon: Microphone,
                   tone: "ice" as const,
-                  title: "Speech never has to leave the machine",
-                  body: "Transcription runs locally by default. Hosted inference is an opt-in fallback for burst load, behind the same interface.",
+                  title: "Speech can stay on your servers",
+                  body: "The phone agent can transcribe and speak entirely on your own infrastructure. Hosted speech, used by this web demo for its voices, is an opt-in behind the same interface.",
                 },
                 {
                   icon: ShieldCheck,
