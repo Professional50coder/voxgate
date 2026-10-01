@@ -137,7 +137,7 @@ def answer(message: str, *, page: str = "home", history: list[dict] | None = Non
                 + f"User: {message[:1000]}")
         try:
             result = structured_call(
-                api_keys=keys, schema=SCHEMA, schema_name="assistant_reply",
+                api_keys=keys, user=user, schema=SCHEMA, schema_name="assistant_reply",
                 preferred_model=settings.groq_model, max_tokens=700, timeout=12.0,
                 temperature=0.4,
                 system=_RULES.format(name=name, page=PAGES[page], facts=KNOWLEDGE))

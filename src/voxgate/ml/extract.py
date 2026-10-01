@@ -58,6 +58,55 @@ class FieldExtractor(Protocol):
         ...
 
 
+# Spoken lead-ins that are never part of the value: "erm, it's Fatima" is
+# Fatima. Repeated, because people stack them ("um, well, my name is...").
+_LEAD_IN = re.compile(
+    r"^\s*(?:(?:u+m+|e+r+m*|u+h+|a+h+|well|so|okay|ok|yeah|yes|sure|right)[\s,.]+"
+    r"|(?:it'?s|it\s+is|that'?s|that\s+is|i'?m|i\s+am|this\s+is|call\s+me"
+    r"|my\s+(?:full\s+|legal\s+)?(?:name|answer)\s+is|the\s+answer\s+is)\s+)+",
+    re.I)
+
+
+def strip_lead_in(spoken: str) -> str:
+    """Drop spoken filler and "my name is"-style lead-ins from a free-text answer."""
+    return _LEAD_IN.sub("", spoken.strip()).strip(" .,!") or spoken.strip()
+
+
+_FREE_SYSTEM = (
+    "You pull the answer to one interview question out of what a person said. "
+    "Return the value exactly as they gave it, without filler or lead-ins "
+    "(\"erm, it's Fatima Al Mansoori\" -> \"Fatima Al Mansoori\"). Normalise dates "
+    "to YYYY-MM-DD. If what they said does not actually contain the answer "
+    "(they deflected, guessed someone else would know, or talked about something "
+    "else) set found to false. Never invent or complete a value."
+)
+
+_FREE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "found": {"type": "boolean"},
+        "value": {"type": "string"},
+        "confidence": {"type": "number"},
+    },
+    "required": ["found", "value", "confidence"],
+    "additionalProperties": False,
+}
+
+
+def grounded(value: str, spoken: str) -> bool:
+    """True when every word of the value was actually said.
+
+    The guard against a model completing a name or inventing a detail. Values
+    with digits are exempt, because normalising "fifth of March 1990" to
+    1990-03-05 is the point and cannot pass a word check.
+    """
+    if re.search(r"\d", value):
+        return True
+    said = set(re.findall(r"[a-z']+", spoken.lower()))
+    words = [w for w in re.findall(r"[a-z']+", value.lower()) if len(w) > 1]
+    return bool(words) and all(w in said for w in words)
+
+
 class KeywordExtractor:
     """Offline fallback. Substring and token overlap against the value names.
 
@@ -80,7 +129,10 @@ class KeywordExtractor:
             # exposed this way, because the value has to be in the allowed set.
             if is_non_answer(spoken):
                 return Extraction(None, 0.0, "non-answer")
-            return Extraction(spoken.strip(), 0.6, "passthrough")
+            cleaned = strip_lead_in(spoken)
+            if is_non_answer(cleaned):
+                return Extraction(None, 0.0, "non-answer")
+            return Extraction(cleaned, 0.6, "passthrough")
 
         # Exact value spoken back, e.g. an operator typing the literal.
         for value in allowed:
@@ -148,8 +200,10 @@ class GroqExtractor:
     def extract(self, field: str, allowed: list[str] | None, spoken: str) -> Extraction:
         if not spoken.strip():
             return Extraction(None, 0.0, "groq")
-        if not self.available or allowed is None:
+        if not self.available:
             return self._fallback.extract(field, allowed, spoken)
+        if allowed is None:
+            return self._extract_free(field, spoken)
 
         # Extraction is the highest-volume LLM path in the product: once per
         # interview question, per applicant. It needs the model+key fallback
@@ -197,6 +251,36 @@ class GroqExtractor:
             return fallback if fallback.value else Extraction(None, confidence, "groq")
 
         return Extraction(value, confidence, "groq")
+
+    def _extract_free(self, field: str, spoken: str) -> Extraction:
+        """A free-text field: the value inside the sentence, or nothing.
+
+        Without this a free-text field stored the whole transcript, so "erm my
+        brother handles all that" became someone's legal name.
+        """
+        fallback = self._fallback.extract(field, None, spoken)
+        if fallback.value is None:
+            return fallback  # the patterns already know it is not an answer
+        from voxgate.ml.groq_client import GroqError, structured_call
+        try:
+            result = structured_call(
+                api_keys=self.keys, system=_FREE_SYSTEM,
+                user=f"Field: {field.replace('_', ' ')}\nThey said: {spoken!r}",
+                schema=_FREE_SCHEMA, schema_name="free_extraction",
+                preferred_model=self.model, temperature=0, max_tokens=200,
+                timeout=self.timeout)
+        except GroqError:
+            return fallback
+        content = result.content
+        value = str(content.get("value", "")).strip()
+        confidence = float(content.get("confidence", 0.0))
+        if not content.get("found") or not value:
+            return Extraction(None, confidence, "groq")
+        if not grounded(value, spoken):
+            # The model produced words that were never said. Keep the cleaned
+            # transcript, at the lower passthrough confidence, rather than them.
+            return fallback
+        return Extraction(value, max(min(confidence, 1.0), 0.0), "groq")
 
 
 def allowed_values(schema_model, field: str) -> list[str] | None:

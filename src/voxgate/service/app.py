@@ -127,6 +127,13 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
         )
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        # Warm the Groq model list in the background, so the first applicant's
+        # first answer does not also pay for model discovery. Fire and forget:
+        # startup never waits on, or fails because of, a hosted API.
+        keys = settings.groq_key_pool()
+        if keys:
+            from voxgate.ml.groq_client import discover_models
+            asyncio.get_running_loop().run_in_executor(None, discover_models, keys[0])
         yield
         # Graceful shutdown. Without this, SIGTERM tore the process down with
         # connections still checked out: Postgres logged a wall of unexpected
@@ -381,9 +388,9 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
         503 means neither voice is reachable (or no key is set), and the page
         should use the browser's own voice. The key never leaves the server.
         """
-        from fastapi import Response
+        from fastapi.responses import StreamingResponse
         from voxgate.packs.agent import DEFAULT_AGENT
-        from voxgate.tts import TTSUnavailable, synthesize
+        from voxgate.tts import TTSUnavailable, stream
 
         agent = DEFAULT_AGENT
         if body.pack_id:
@@ -391,12 +398,14 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
                 raise HTTPException(404, "unknown pack")
             agent = runner.packs[body.pack_id].agent
         try:
-            speech = synthesize(body.text, agent.voice, settings)
+            tier, _, first_ms, chunks = stream(body.text, agent.voice, settings)
         except TTSUnavailable as exc:
             raise HTTPException(503, f"voice unavailable: {exc}") from exc
-        return Response(speech.audio, media_type=speech.media_type, headers={
-            "X-Voice-Tier": speech.tier, "X-TTS-Ms": str(speech.ms),
-            "Cache-Control": "no-store"})
+        # Streamed: the page starts playing on the first chunk instead of
+        # waiting for the whole sentence to be generated.
+        return StreamingResponse(chunks, media_type="audio/mpeg", headers={
+            "X-Voice-Tier": tier, "X-TTS-First-Byte-Ms": str(first_ms),
+            "X-Agent-Name": agent.name, "Cache-Control": "no-store"})
 
     @app.post("/assistant")
     def assistant(body: AssistantPayload):

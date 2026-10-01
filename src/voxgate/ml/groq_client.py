@@ -67,6 +67,13 @@ _key_cooldown: dict[str, float] = {}        # 429: monotonic time it may lead ag
 _demoted_models: dict[str, float] = {}      # 404: monotonic time to retry it
 _COOLDOWN_SECS = 60.0
 
+_client = None  # pooled httpx.Client, created on first call
+try:
+    import httpx as _httpx
+    _REAL_POST = _httpx.post
+except ImportError:  # pragma: no cover - httpx is a core dependency
+    _REAL_POST = None
+
 
 def reset_health() -> None:
     """Forget every health mark. For tests, and after rotating keys."""
@@ -220,6 +227,7 @@ def structured_call(
     temperature: float = 0.0,
     max_tokens: int = 2000,
     timeout: float = 45.0,
+    reasoning_effort: str = "low",
 ) -> GroqResult:
     """Call Groq for structured JSON, walking models then keys on rate limits.
 
@@ -233,6 +241,14 @@ def structured_call(
     should not fail the whole request.
     """
     import httpx
+
+    # Keep-alive across calls: a fresh TLS handshake costs ~100-300 ms, which
+    # is a real share of a conversational turn. Tests that patch httpx.post
+    # get it called directly, so they keep working unchanged.
+    global _client
+    if _client is None:
+        _client = httpx.Client(limits=httpx.Limits(max_keepalive_connections=8))
+    _pooled = _client if httpx.post is _REAL_POST else None
 
     keys = [k for k in (api_keys or []) if k]
     if api_key and api_key not in keys:
@@ -292,19 +308,29 @@ def structured_call(
                     + json.dumps(schema)
                 )
 
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": temperature,
+                "max_completion_tokens": max_tokens,
+                "response_format": response_format,
+            }
+            if model.startswith("openai/gpt-oss"):
+                # Every call here is a mapping or a short reply, not a puzzle.
+                # Default reasoning roughly doubles latency for no gain.
+                payload["reasoning_effort"] = reasoning_effort
             response = httpx.post(
                 GROQ_URL,
                 headers={"Authorization": f"Bearer {key}"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user},
-                    ],
-                    "temperature": temperature,
-                    "max_completion_tokens": max_tokens,
-                    "response_format": response_format,
-                },
+                json=payload,
+                timeout=timeout,
+            ) if _pooled is None else _pooled.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {key}"},
+                json=payload,
                 timeout=timeout,
             )
             if response.status_code == 429:
