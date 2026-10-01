@@ -4,12 +4,12 @@
 
 Notably absent: an LLM service. Most Pipecat pipelines put one between STT and
 TTS to decide what to say. `InterviewProcessor` replaces it, because the pack
-already knows what to ask — see that module for why a model choosing the
+already knows what to ask â€” see that module for why a model choosing the
 questions is the wrong shape for regulated intake.
 
 Everything here is local by default. Whisper transcribes on this machine and
-Kokoro speaks on it, so an applicant's voice — which is biometric data, and in
-an identity interview is attached to their name and date of birth — does not
+Kokoro speaks on it, so an applicant's voice â€” which is biometric data, and in
+an identity interview is attached to their name and date of birth â€” does not
 leave the box unless an operator opts into a hosted service.
 
 Imports of `pipecat` are deferred into the functions. The voice stack is a
@@ -63,7 +63,31 @@ def build_stt(model: str = DEFAULT_WHISPER_MODEL):
     return WhisperSTTService(model=model)
 
 
-def build_tts(voice_id: str = "af_heart"):
+def build_tts(voice_id: str = "af_heart", agent_voice=None):
+    """Cartesia in the agent's voice when it is reachable, Kokoro otherwise.
+
+    The agent's primary voice is probed first, then its fallback; whichever
+    answers is used for the whole call. With no key, no network or both voices
+    down, the call still happens in Kokoro's local voice.
+    """
+    from voxgate.config import get_settings
+    from voxgate.packs.agent import VoiceProfile
+    from voxgate.tts import pick_voice
+
+    settings = get_settings()
+    picked = pick_voice(agent_voice or VoiceProfile(), settings) \
+        if settings.cartesia_api_key else None
+    if picked is not None:
+        tier, cartesia_voice = picked
+        try:
+            from pipecat.services.cartesia.tts import CartesiaTTSService
+
+            logger.info("speaking with Cartesia %s voice %s", tier, cartesia_voice)
+            return CartesiaTTSService(api_key=settings.cartesia_api_key,
+                                      voice_id=cartesia_voice,
+                                      model=settings.cartesia_model)
+        except ImportError:
+            logger.warning("pipecat cartesia extra not installed; using Kokoro")
     from pipecat.services.kokoro.tts import KokoroTTSService
 
     return KokoroTTSService(voice_id=voice_id)
@@ -74,7 +98,7 @@ def build_pipeline(*, transport, interview, config: VoiceConfig | None = None):
 
     `interview` is an `InterviewProcessor`. It is constructed by the caller
     rather than here because it needs a case, an extractor and a completion
-    callback — all of which belong to the service layer, which this module
+    callback â€” all of which belong to the service layer, which this module
     deliberately does not import.
     """
     from pipecat.pipeline.pipeline import Pipeline
@@ -84,7 +108,7 @@ def build_pipeline(*, transport, interview, config: VoiceConfig | None = None):
         transport.input(),
         build_stt(config.whisper_model),
         interview,
-        build_tts(config.voice_id),
+        build_tts(config.voice_id, getattr(getattr(interview, "agent", None), "voice", None)),
         transport.output(),
     ])
 

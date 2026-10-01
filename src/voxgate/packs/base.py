@@ -1,8 +1,9 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 from pydantic import BaseModel
 from voxgate.ml.scorecard import Scorecard
+from voxgate.packs.agent import AgentProfile
 
 class CheckResult(BaseModel):
     check_name: str
@@ -24,3 +25,4 @@ class Pack:
     scorecard: Scorecard
     feature_field_hints: dict[str, str]
     path: Path
+    agent: AgentProfile = field(default_factory=AgentProfile)

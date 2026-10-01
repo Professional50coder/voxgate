@@ -29,11 +29,11 @@ embeddings = ["sentence-transformers>=3.0"]
 # The >=0.0.60 floor this replaces was from the previous framework generation
 # and silently resolved across a major version.
 #
-# deepgram and cartesia were dropped: both are paid-key services, which the
-# local-first constraint rules out. whisper and kokoro are their local
-# equivalents; groq covers the hosted fallback.
+# Cartesia is the default voice when CARTESIA_API_KEY is set (human-sounding,
+# fast first audio). Kokoro stays as the local fallback, so with no key or no
+# network the agent still speaks and audio never has to leave the box.
 voice = [
-    "pipecat-ai[webrtc,websocket,whisper,kokoro,silero,groq]>=1.7,<2",
+    "pipecat-ai[webrtc,websocket,whisper,kokoro,silero,groq,cartesia]>=1.7,<2",
 ]
 
 [dependency-groups]

@@ -44,6 +44,40 @@ class Intent(str, Enum):
     REPEAT = "repeat"
     #: "Actually, I meant..." — replacing an answer already given.
     CORRECTION = "correction"
+    #: "My PIN is..." — something that must never be collected by voice.
+    SENSITIVE = "sensitive"
+    #: "How long will this take?" — about the interview itself, not the field.
+    PROCESS = "process"
+    #: "Hi", "thanks", "lovely weather" — warmth, not content.
+    SMALLTALK = "smalltalk"
+    #: Unrelated subject matter. Only the model assigns this; no pattern can
+    #: tell an off-topic sentence from an unusual answer.
+    OFF_TOPIC = "off_topic"
+
+
+# What a process question is about. Answers live in dialogue/phrasing.py.
+PROCESS_TOPICS: list[tuple[str, re.Pattern]] = [
+    ("duration", re.compile(r"\bhow\s+long\b|\bhow\s+much\s+(more\s+)?time\b"
+                            r"|\bhow\s+many\s+(more\s+)?questions\b|\balmost\s+done\b", re.I)),
+    ("recording", re.compile(r"\b(is|are)\s+(this|you|it|we)\s+(call\s+)?(being\s+)?record"
+                             r"|\bbeing\s+recorded\b", re.I)),
+    ("privacy", re.compile(r"\bwho\s+(sees|will\s+see|can\s+see|gets|has\s+access)\b"
+                           r"|\bis\s+my\s+(data|information|info)\b|\bprivacy\b"
+                           r"|\bstored\b|\bshare\s+my\b", re.I)),
+    ("identity", re.compile(r"\bare\s+you\s+(a\s+)?(real|human|person|robot|bot|ai|machine)\b"
+                            r"|\bam\s+i\s+(talking|speaking)\s+to\s+a\b|\bwho\s+are\s+you\b", re.I)),
+    ("purpose", re.compile(r"\bwhat\s+is\s+this\s+(call\s+|interview\s+)?for\b"
+                           r"|\bwhy\s+(am\s+i\s+doing|do\s+i\s+have\s+to\s+do)\s+this\b"
+                           r"|\bwhat\s+happens\s+(next|after)\b", re.I)),
+]
+
+
+def process_topic(spoken: str) -> str | None:
+    """Which process question this is, or None when it is not one."""
+    for topic, pattern in PROCESS_TOPICS:
+        if pattern.search(spoken or ""):
+            return topic
+    return None
 
 
 # Ordered, and the order is load-bearing. "I don't know what you mean" is a
@@ -96,6 +130,23 @@ _BARE_NON_ANSWERS = {
 }
 
 
+# Checked before anything else: a card number must never reach the extractor,
+# whatever else the sentence is doing.
+_SENSITIVE = re.compile(
+    r"\b(pin|password|passcode|otp|cvv|cvc|card\s+number|credit\s+card|debit\s+card"
+    r"|one[- ]time\s+(code|password)|security\s+code|bank\s+login)\b"
+    r"|\b(?:\d[ -]?){13,19}\b", re.I)
+
+# Whole-utterance only. "Thanks, it's Fatima" is an answer with manners, and
+# must reach the extractor; a bare "thanks" is not.
+_SMALLTALK = re.compile(
+    r"^\s*(hi|hello|hey|hiya|good\s+(morning|afternoon|evening)|namaste|marhaba"
+    r"|salaam|as[- ]?salaam?u?\s*alaikum|thanks?(\s+you)?(\s+so\s+much)?|cheers"
+    r"|nice\s+to\s+(meet|talk\s+to)\s+you|how\s+are\s+you(\s+doing)?(\s+today)?"
+    r"|ok(ay)?\s+(cool|great|sure)|great|cool|lovely|perfect)"
+    r"[\s,.!?]*(there|again|today)?[\s,.!?]*$", re.I)
+
+
 def classify(spoken: str) -> Intent:
     """What the applicant just did. Falls through to ANSWER when unrecognised.
 
@@ -107,8 +158,17 @@ def classify(spoken: str) -> Intent:
     if not text:
         return Intent.DONT_KNOW
 
+    if _SENSITIVE.search(text):
+        return Intent.SENSITIVE
+
     if text.lower().strip(" .!?") in _BARE_NON_ANSWERS:
         return Intent.DONT_KNOW
+
+    if _SMALLTALK.match(text):
+        return Intent.SMALLTALK
+
+    if process_topic(text):
+        return Intent.PROCESS
 
     for intent, pattern in _PATTERNS:
         if pattern.search(text):
@@ -147,7 +207,11 @@ _INTENT_SYSTEM = (
     "question: they asked you something, or said the question was unclear. "
     "refusal: they have the information and are declining to give it. "
     "repeat: they did not hear you. "
-    "correction: they are changing an answer they already gave."
+    "correction: they are changing an answer they already gave. "
+    "sensitive: they are reading out a PIN, password, card number or one-time code. "
+    "process: they asked about the interview itself (how long, who sees it, why). "
+    "smalltalk: a greeting, thanks or pleasantry with no answer in it. "
+    "off_topic: they talked about something unrelated to the question."
 )
 
 

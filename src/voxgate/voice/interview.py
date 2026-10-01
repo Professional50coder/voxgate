@@ -44,8 +44,9 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-from voxgate.ml.understanding import Intent, classify
-from voxgate.dialogue import phrasing
+from voxgate.ml.understanding import Intent
+from voxgate.dialogue import brain, phrasing
+from voxgate.packs.agent import DEFAULT_AGENT, AgentProfile
 
 logger = logging.getLogger(__name__)
 
@@ -149,8 +150,15 @@ class InterviewProcessor(FrameProcessor):
         options: dict[str, list[str]] | None = None,
         reasons: dict[str, str] | None = None,
         classify_model=None,
+        agent: AgentProfile | None = None,
+        recorder=None,
     ) -> None:
         super().__init__()
+        self.agent = agent or DEFAULT_AGENT
+        self.counters = brain.Counters()
+        # Optional transcripts.TranscriptRecorder. Recording must never break
+        # a call, so every use is guarded.
+        self._recorder = recorder
         self.state = InterviewState(
             field_names=list(field_names),
             questions=dict(questions),
@@ -204,7 +212,16 @@ class InterviewProcessor(FrameProcessor):
             await self._finish()
 
     async def _say(self, text: str) -> None:
+        self._record("agent", text)
         await self.push_frame(TTSSpeakFrame(text), FrameDirection.DOWNSTREAM)
+
+    def _record(self, role: str, text: str) -> None:
+        if self._recorder is None:
+            return
+        try:
+            self._recorder.add(role, text)
+        except Exception:  # noqa: BLE001 - a transcript is never worth a dropped call
+            logger.debug("transcript write failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # The interview itself
@@ -225,14 +242,16 @@ class InterviewProcessor(FrameProcessor):
             # someone for a dropped packet would burn their retries on a
             # microphone problem.
             return
+        self._record("applicant", spoken)
 
         # What the applicant DID, before what they said maps to. An utterance
         # that is not an attempt to answer must not be fed to the extractor:
         # doing that is what let "I don't know" become a stored value on a
         # free-text field, and what made a question back count as a failure.
-        intent = classify(spoken)
-        if intent is not Intent.ANSWER:
-            await self._handle_non_answer(current, intent)
+        # The pack agent's own rules run first.
+        understood = brain.understand(spoken, self.agent)
+        if understood.intent is not Intent.ANSWER:
+            await self._handle_non_answer(current, understood.intent, understood)
             return
 
         self.state.attempts += 1
@@ -307,7 +326,8 @@ class InterviewProcessor(FrameProcessor):
             reason=self.state.reasons.get(name),
         )
 
-    async def _handle_non_answer(self, current: str, intent: Intent) -> None:
+    async def _handle_non_answer(self, current: str, intent: Intent,
+                                 understood: "brain.Understanding | None" = None) -> None:
         """The applicant said something that is not an answer.
 
         Each branch differs in whether it costs an attempt, and that is the
@@ -315,6 +335,15 @@ class InterviewProcessor(FrameProcessor):
         cooperating; charging them an attempt pushes the most engaged applicants
         towards the give-up path fastest.
         """
+        # Sensitive, process, small talk and off-topic are free: none of them
+        # is a failed attempt at this field.
+        reply = brain.non_answer_reply(
+            understood or brain.Understanding(intent),
+            self.state.question_for(current), self.counters, self.agent)
+        if reply is not None:
+            await self._say(reply)
+            return
+
         if intent is Intent.REPEAT:
             # They heard nothing. Repeat exactly, and charge nothing: a dropped
             # word is a connection problem, not a failure to answer.
@@ -467,6 +496,16 @@ class InterviewProcessor(FrameProcessor):
             "That is everything I need. Your answers are being reviewed now, "
             "and someone will be in touch."
         )
+        if self._recorder is not None:
+            try:
+                from voxgate.ml.summarize import SessionSummarizer
+                self._recorder.finalize(
+                    summarizer=SessionSummarizer(), fields_collected=dict(self.state.answers),
+                    outcome="completed",
+                    extra={"unresolved": list(self.state.unresolved),
+                           "declined": list(self.state.declined)})
+            except Exception:  # noqa: BLE001
+                logger.exception("finalizing the transcript failed")
         try:
             await self._on_complete(dict(self.state.answers), dict(self.state.confidence))
         except Exception:

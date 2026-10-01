@@ -144,6 +144,62 @@ def concede(field: str) -> str:
     )
 
 
+_PROCESS_ANSWERS = {
+    "duration": "It is short, usually two or three minutes, and we are already part of the way through.",
+    "recording": "Yes. The conversation is transcribed and kept with your application, so a reviewer can see exactly what was said.",
+    "privacy": "Only the team reviewing your application sees your answers. They are stored securely and used for this check only.",
+    "identity": "I am an automated assistant. I collect your answers, and a person on the team makes any decision.",
+    "purpose": "This is a standard check we are required to complete. Once you have answered, a member of the team reviews it and gets back to you.",
+}
+
+
+def process_answer(topic: str | None, question: str,
+                   overrides: dict[str, str] | None = None) -> str:
+    """Answer a question about the interview itself, then return to the field.
+
+    Free, like `explain`: someone asking how long this takes is still with you.
+    `overrides` is the pack agent's own wording, used where it has one.
+    """
+    answers = {**_PROCESS_ANSWERS, **(overrides or {})}
+    body = answers.get(topic or "", answers["purpose"])
+    return f"{body} {question}"
+
+
+# Rotated so two pleasantries in a row do not get the identical reply.
+_SMALLTALK_BRIDGES = (
+    "Thank you, nice to talk to you too.",
+    "Thanks, I appreciate that.",
+    "That is kind of you.",
+)
+
+# Pleasantries answered warmly before the interview starts nudging. Past this,
+# warmth turns into a stall.
+MAX_SMALLTALK = 2
+
+
+def smalltalk(question: str, used: int, limit: int = MAX_SMALLTALK) -> str:
+    """Return a greeting or a thank-you, briefly, then ask again."""
+    if used >= limit:
+        return f"Let us keep going so I do not take up too much of your time. {question}"
+    return f"{_SMALLTALK_BRIDGES[used % len(_SMALLTALK_BRIDGES)]} {question}"
+
+
+def redirect(question: str, strikes: int) -> str:
+    """Steer an off-topic turn back. Polite first, plainer the second time."""
+    if strikes <= 1:
+        return f"I can only help with your application on this call, but happy to keep going. {question}"
+    return f"Let us stay with the application for now. {question}"
+
+
+def refuse_sensitive(question: str) -> str:
+    """Stop a caller reading out credentials, without making them feel accused."""
+    return (
+        "Please do not share PINs, passwords, card numbers or one-time codes. "
+        "We never need those, and I have not recorded what you just said. "
+        f"{question}"
+    )
+
+
 def confirm_volunteered(taken: dict[str, str]) -> str:
     """Read back answers the applicant gave before being asked for them.
 

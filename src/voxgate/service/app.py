@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -45,6 +46,26 @@ class ExtractPayload(BaseModel):
     # the re-ask ladder comes back, so the browser flow gets the same escalation
     # the voice flow does without reimplementing it in TypeScript.
     attempt: int = Field(default=0, ge=0, le=10)
+    # Conversation budgets, echoed back by the browser each turn so the API
+    # stays stateless (serverless instances share no memory).
+    smalltalk_used: int = Field(default=0, ge=0, le=50)
+    off_topic_strikes: int = Field(default=0, ge=0, le=50)
+
+class TTSPayload(BaseModel):
+    text: str = Field(min_length=1, max_length=600)
+    # Speak in this pack agent's voice; omitted means the default agent.
+    pack_id: str | None = Field(default=None, max_length=64)
+
+class AssistantTurn(BaseModel):
+    role: str = Field(max_length=16)
+    text: str = Field(max_length=1_000)
+
+class AssistantPayload(BaseModel):
+    message: str = Field(min_length=1, max_length=1_000)
+    page: str = Field(default="home", max_length=32)
+    history: list[AssistantTurn] = Field(default_factory=list, max_length=12)
+    # What the page is showing, e.g. a case on the console. Plain text, capped.
+    context: str | None = Field(default=None, max_length=3_000)
 
 class DraftPayload(BaseModel):
     description: str = Field(min_length=20, max_length=4_000)
@@ -133,7 +154,7 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
     app = FastAPI(title="VoxGate", lifespan=lifespan)
     # The standard FastAPI seam for per-app singletons. Routes close over
     # `runner` directly; this is for anything holding the app rather than a
-    # request — shutdown, operational tooling, and tests.
+    # request â€” shutdown, operational tooling, and tests.
     app.state.runner = runner
 
     # ORDER MATTERS AND IS COUNTERINTUITIVE. `add_middleware` inserts at the
@@ -146,7 +167,8 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
     # correlated is the traffic that gets no id and no log line.
     app.add_middleware(
         RateLimitMiddleware,
-        paths=COSTLY_PATHS + ("/packs/",),
+        # /tts and /assistant are public and each spends a paid call.
+        paths=COSTLY_PATHS + ("/packs/", "/tts", "/assistant"),
         limit=COSTLY_LIMIT,
         window=COSTLY_WINDOW,
         quota=quota,
@@ -223,6 +245,20 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
             raise HTTPException(503, {"status": "not ready", "checks": checks})
         return {"status": "ready", "checks": checks}
 
+    @app.get("/agents/status", dependencies=[operator])
+    def agents_status():
+        """What the intelligence layer is running on. Operator-only; key
+        health is reported by position, never by value or fingerprint."""
+        from voxgate.ml import groq_client
+        keys = settings.groq_key_pool()
+        status: dict[str, object] = {"llm": "enabled" if keys else "disabled",
+                                     "keys": groq_client.key_health(keys)}
+        if keys:
+            strict, lenient = groq_client.discover_models(keys[0])
+            status["models"] = {"preferred": settings.groq_model,
+                                "strict": strict, "lenient": lenient}
+        return status
+
     @app.get("/packs")
     def packs():
         # The catalogue must show packs published by other workers, not just
@@ -239,7 +275,7 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
 
             Exposed so a client can offer them rather than guess. The voice
             interview uses this to read the options aloud when an applicant says
-            they do not know — which is the difference between a re-ask that
+            they do not know â€” which is the difference between a re-ask that
             helps and one that repeats the same sentence. The system always had
             this list; it simply never left the server.
             """
@@ -254,7 +290,10 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
                  "gate_role": p.gate_role,
                  "fields": list(p.schema_model.model_fields),
                  "reask_hints": p.reask_hints,
-                 "field_values": values_for(p)}
+                 "field_values": values_for(p),
+                 # The pack's voice agent: persona, voice and house rules. All
+                 # of it is applicant-facing already, so nothing here is secret.
+                 "agent": p.agent.model_dump()}
                 for p in runner.packs.values()]
 
     @app.post("/packs/{pack_id}/extract")
@@ -272,26 +311,36 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
             raise HTTPException(404, "unknown field")
 
         from voxgate.ml.extract import allowed_values, build_extractor
-        from voxgate.ml.understanding import Intent, classify
-        from voxgate.dialogue import phrasing
+        from voxgate.ml.understanding import Intent
+        from voxgate.dialogue import brain, phrasing
 
+        t0 = time.perf_counter()
         allowed = allowed_values(pack.schema_model, body.field)
         question = pack.reask_hints.get(body.field, "")
 
         # What the person DID, before what it maps to. An utterance that is not
         # an attempt to answer must not be extracted: that is what let "I don't
-        # know" become a stored value on a free-text field.
-        intent = classify(body.spoken)
+        # know" become a stored value on a free-text field. The pack's own
+        # agent rules are applied first.
+        u = brain.understand(body.spoken, pack.agent)
+        intent = u.intent
+        t1 = time.perf_counter()
         if intent is not Intent.ANSWER:
             result = None
         else:
             result = build_extractor().extract(body.field, allowed, body.spoken)
+        t2 = time.perf_counter()
+
+        counters = brain.Counters(body.smalltalk_used, body.off_topic_strikes)
+        conversational = brain.non_answer_reply(u, question, counters, pack.agent)
 
         # The next thing to say, decided here rather than in the browser. Both
         # surfaces asking the same way is the point: a second implementation in
         # TypeScript would drift, and the one that drifted would be the one
         # applicants actually use.
-        if intent is Intent.REPEAT:
+        if conversational is not None:
+            prompt = conversational
+        elif intent is Intent.REPEAT:
             prompt = question
         elif intent is Intent.QUESTION:
             prompt = phrasing.explain(body.field, question, allowed=allowed)
@@ -312,9 +361,51 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
             "allowed": allowed,
             "intent": intent.value,
             "is_answer": intent is Intent.ANSWER,
+            # Which layer decided: a rule from this pack's agent block, or the
+            # platform's shared patterns.
+            "rule": u.rule,
             # None when the answer landed; otherwise what to show the applicant.
             "prompt": prompt,
+            "counters": {"smalltalk_used": counters.smalltalk,
+                         "off_topic_strikes": counters.off_topic},
+            # Server-side cost of this turn, so latency is measured, not claimed.
+            "timing_ms": {"understand": round((t1 - t0) * 1000, 2),
+                          "extract": round((t2 - t1) * 1000, 2),
+                          "total": round((time.perf_counter() - t0) * 1000, 2)},
         }
+
+    @app.post("/tts")
+    def tts(body: TTSPayload):
+        """Speak a line in an agent's voice: its primary, then its fallback.
+
+        503 means neither voice is reachable (or no key is set), and the page
+        should use the browser's own voice. The key never leaves the server.
+        """
+        from fastapi import Response
+        from voxgate.packs.agent import DEFAULT_AGENT
+        from voxgate.tts import TTSUnavailable, synthesize
+
+        agent = DEFAULT_AGENT
+        if body.pack_id:
+            if not runner.has_pack(body.pack_id):
+                raise HTTPException(404, "unknown pack")
+            agent = runner.packs[body.pack_id].agent
+        try:
+            speech = synthesize(body.text, agent.voice, settings)
+        except TTSUnavailable as exc:
+            raise HTTPException(503, f"voice unavailable: {exc}") from exc
+        return Response(speech.audio, media_type=speech.media_type, headers={
+            "X-Voice-Tier": speech.tier, "X-TTS-Ms": str(speech.ms),
+            "Cache-Control": "no-store"})
+
+    @app.post("/assistant")
+    def assistant(body: AssistantPayload):
+        """The page voice assistant. Answers about VoxGate, and may ask the page
+        to perform one action from a fixed list."""
+        from voxgate.dialogue.assistant import answer
+        return answer(body.message, page=body.page, context=body.context,
+                      history=[t.model_dump() for t in body.history],
+                      settings=settings)
 
     @app.post("/packs/draft", dependencies=[operator])
     def draft_new_pack(body: DraftPayload):
@@ -353,7 +444,7 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
         Operator-only. This writes generated Python to the server and imports
         it. Every value that reaches generated source is type-checked or escaped
         by `emit._str`/`emit._num`, with regression tests for the two injections
-        that were possible before — but defence in depth means it is also behind
+        that were possible before â€” but defence in depth means it is also behind
         the operator key, and it refuses to overwrite an existing pack unless
         told to. If VOXGATE_API_KEYS is unset the guard is a no-op; readiness
         reports that as `auth: disabled`.
@@ -464,7 +555,7 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
 
 # NOTE (Implementer deviation from brief's literal `app = create_app()`):
 # Calling create_app() eagerly at import time would load real packs and
-# build LangGraph graphs every time this module is imported — including
+# build LangGraph graphs every time this module is imported â€” including
 # every test-collection pass of tests/test_api.py, which only needs
 # create_app(runner=...). Per the brief's implementer note, `app` is
 # instead built lazily on first attribute access (PEP 562 module

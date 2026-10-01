@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
     groq_model: str = Field(default="openai/gpt-oss-20b", alias="GROQ_MODEL")
 
+    # Cartesia text-to-speech. Unset means the browser and the voice worker
+    # fall back to their local voices; nothing else changes.
+    cartesia_api_key: str | None = Field(default=None, alias="CARTESIA_API_KEY")
+    cartesia_model: str = Field(default="sonic-3", alias="CARTESIA_MODEL")
+
     # Exa. Same reasoning as Groq: the exa_py SDK expects the bare name.
     exa_api_key: str | None = Field(default=None, alias="EXA_API_KEY")
 

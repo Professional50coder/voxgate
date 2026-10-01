@@ -3,6 +3,8 @@ import logging
 import sys
 from pathlib import Path
 import yaml
+
+from voxgate.packs.agent import AgentProfile
 from .base import Pack
 
 logger = logging.getLogger(__name__)
@@ -32,7 +34,8 @@ def load_pack(path: Path) -> Pack:
             schema_model=schema.Schema, reask_hints=schema.REASK_HINTS,
             prompt=(path / "prompt.md").read_text(encoding="utf-8"),
             checks=checks.CHECKS, scorecard=scoring.build_scorecard(low, high),
-            feature_field_hints=scoring.FEATURE_FIELD_HINTS, path=path)
+            feature_field_hints=scoring.FEATURE_FIELD_HINTS, path=path,
+            agent=AgentProfile.model_validate(meta.get("agent") or {}))
     except Exception as e:
         raise PackLoadError(f"Failed to load pack from {path}: {e}") from e
 

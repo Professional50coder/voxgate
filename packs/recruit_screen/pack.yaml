@@ -2,3 +2,13 @@ pack_id: "recruit-screen"
 display_name: "Candidate Phone Screen"
 gate_role: "Hiring Manager"
 thresholds: {low: 0.32, high: 0.66}
+
+# The voice agent for this pack. See src/voxgate/packs/agent.py.
+agent:
+  name: Victoria
+  greeting: "Hello, I'm Victoria from the recruiting team. This is a short screening call before you meet the hiring manager."
+  voice: {primary: dc30854e-e398-4579-9dc8-16f6cb2c19b9, fallback: 56e35e2d-6eb6-4226-ab8b-9776515a7094}
+  max_smalltalk: 2
+  blocked_topics: [salary of other candidates, who else applied]
+  process_answers:
+    purpose: "It helps the hiring manager see where your experience fits before the interview. A person reviews every screen."

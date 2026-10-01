@@ -2,3 +2,15 @@ pack_id: kyc-uae
 display_name: UAE Fintech KYC Onboarding
 gate_role: Compliance Officer
 thresholds: {low: 0.30, high: 0.65}
+
+# The voice agent for this pack. See src/voxgate/packs/agent.py.
+agent:
+  name: Lucy
+  greeting: "Hi, I'm Lucy. I'll take you through a short identity check for your new account. It takes about three minutes."
+  voice: {primary: 2f251ac3-89a9-4a77-a452-704b474ccd01, fallback: 56e35e2d-6eb6-4226-ab8b-9776515a7094, speed: 0.95}
+  max_smalltalk: 1
+  blocked_topics: [investment advice, crypto tips, stock tips, loan offer]
+  sensitive_terms: [iban, account number, emirates id number]
+  process_answers:
+    purpose: "UAE regulations require us to verify every new customer before an account is opened. A compliance officer reviews your answers."
+    privacy: "Your answers go only to our compliance team and are kept as your regulatory record."

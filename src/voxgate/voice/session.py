@@ -135,12 +135,20 @@ def build_interview(client: VoxGateClient, case_id: str, *, greeting: str | None
 
         return await asyncio.to_thread(classify_with_model, spoken, question)
 
+    from voxgate.packs.agent import AgentProfile
+    from voxgate.transcripts import TranscriptRecorder
+
+    # The pack's own agent: its greeting, house rules and process answers.
+    agent = AgentProfile.model_validate(pack.get("agent") or {})
+
     return InterviewProcessor(
         field_names=list(field_names),
         questions=questions,
         extract=extract,
         on_complete=on_complete,
-        greeting=greeting,
+        greeting=greeting or agent.greeting,
         options=options,
         classify_model=classify_model,
+        agent=agent,
+        recorder=TranscriptRecorder(case_id),
     )

@@ -2,3 +2,15 @@ pack_id: "patient-intake"
 display_name: "Clinic Patient Intake"
 gate_role: "Triage Nurse"
 thresholds: {low: 0.25, high: 0.55}
+
+# The voice agent for this pack. See src/voxgate/packs/agent.py.
+agent:
+  name: Iris
+  greeting: "Hello, I'm Iris from the clinic. I'll ask a few questions before your visit so the nurse is ready for you."
+  voice: {primary: c894559e-d529-4d70-a6fb-3330ecf7ef6b, fallback: 56e35e2d-6eb6-4226-ab8b-9776515a7094, speed: 0.92}
+  max_smalltalk: 2
+  blocked_topics: [diagnose me, prescribe, which medicine should]
+  sensitive_terms: [insurance card number, policy number]
+  process_answers:
+    purpose: "These questions help the triage nurse prepare. I can't give medical advice, but the nurse will go through everything with you."
+    privacy: "Only the clinical team sees your answers, and they are stored with your patient record."
