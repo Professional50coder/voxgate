@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -9,7 +9,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="VOXGATE_", env_file=REPO_ROOT / ".env", extra="ignore",
         populate_by_name=True)
-    database_url: str | None = None
+    # VOXGATE_DATABASE_URL wins; DATABASE_URL is accepted because that is the
+    # name the Vercel Neon integration injects (its pooled endpoint, which is
+    # what the pools here are configured for).
+    database_url: str | None = Field(
+        default=None, validation_alias=AliasChoices("VOXGATE_DATABASE_URL", "DATABASE_URL",
+                                                    "database_url"))
     packs_dir: Path = REPO_ROOT / "packs"
 
     # Where per-session interview transcripts are written. On Vercel only /tmp

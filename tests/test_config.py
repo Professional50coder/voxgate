@@ -21,3 +21,12 @@ def test_secrets_are_stripped_of_byte_order_marks_and_whitespace():
     assert s.cartesia_api_key == "sk_abc"
     assert s.groq_api_key is None
     assert s.api_keys == "k1,k2"
+
+def test_database_url_falls_back_to_the_neon_integration_name(monkeypatch):
+    from voxgate.config import Settings
+    monkeypatch.delenv("VOXGATE_DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://neon/pooled")
+    assert Settings(_env_file=None).database_url == "postgresql://neon/pooled"
+    monkeypatch.setenv("VOXGATE_DATABASE_URL", "postgresql://explicit")
+    assert Settings(_env_file=None).database_url == "postgresql://explicit"
+    assert Settings(_env_file=None, database_url=None).database_url is None
