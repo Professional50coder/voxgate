@@ -2,8 +2,20 @@
 
 **Voice interviews for regulated intake. The agent holds the conversation, the questions stay exactly as approved, and a person makes the call with a full record of why.**
 
-- Web app: **https://voxgate-web.vercel.app**
-- API: **https://voxgate-api.vercel.app** (`GET /health`, `GET /packs`, `GET /stats`)
+### Live
+
+**[voxgate-web.vercel.app](https://voxgate-web.vercel.app)**
+
+| Try it | Link |
+|---|---|
+| Talk to an agent (KYC interview) | [voxgate-web.vercel.app/apply](https://voxgate-web.vercel.app/apply) |
+| Patient intake agent | [voxgate-web.vercel.app/apply?pack=patient-intake](https://voxgate-web.vercel.app/apply?pack=patient-intake) |
+| How it works, with Lucy the voice guide | [voxgate-web.vercel.app/how-it-works](https://voxgate-web.vercel.app/how-it-works) |
+| Reviewer console (operator key) | [voxgate-web.vercel.app/console](https://voxgate-web.vercel.app/console) |
+| Analytics, search and agent store (operator key) | [voxgate-web.vercel.app/dashboard](https://voxgate-web.vercel.app/dashboard) |
+| API health | [voxgate-api.vercel.app/health/ready](https://voxgate-api.vercel.app/health/ready) |
+| Agents and their questions | [voxgate-api.vercel.app/packs](https://voxgate-api.vercel.app/packs) |
+| Source | [github.com/Professional50coder/voxgate](https://github.com/Professional50coder/voxgate) |
 
 ### At a glance
 
