@@ -19,6 +19,7 @@ import {
 import Link from "next/link";
 
 import { AgentCard } from "@/components/agent-card";
+import { ConsoleShowcase } from "@/components/console-showcase";
 import { FeatureCard, StatCard } from "@/components/feature-card";
 import { GlassRibbons } from "@/components/glass-ribbons";
 import { Nav } from "@/components/nav";
@@ -604,6 +605,27 @@ export default function Home() {
                 </Reveal>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* What the reviewer sees: the product a compliance buyer is buying. */}
+        <section id="reviewer" className={SECTION}>
+          <div className={SHELL}>
+            <Reveal>
+              <p className={EYEBROW}>The reviewer&apos;s view</p>
+              <h2 className={`mt-5 max-w-[24ch] ${H2}`}>
+                Decide in a minute, with the evidence already laid out.
+              </h2>
+              <p className={LEAD}>
+                Every flagged case arrives with what was said, what was found and why it scored
+                the way it did. Try deciding this sample case.
+              </p>
+            </Reveal>
+            <Reveal delay={0.08}>
+              <div className="mt-12">
+                <ConsoleShowcase />
+              </div>
+            </Reveal>
           </div>
         </section>
 

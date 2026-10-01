@@ -3,6 +3,7 @@
 import { Lightning, Microphone, Play, ShieldCheck, SpeakerHigh, Stop } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ConsoleShowcase } from "@/components/console-showcase";
 import { ASSISTANT_EVENT, VoiceAssistant, narrate } from "@/components/voice-assistant";
 import { type Pack, type Understanding, getPacks, understand } from "@/lib/api";
 import { createRecognizer, speechSupported } from "@/lib/speech";
@@ -19,6 +20,7 @@ const STEPS = [
 /** What Lucy says as each section comes into view. One or two sentences. */
 const NARRATION: Record<string, string> = {
   pipeline: "Here's the whole journey in five steps. A pack defines the interview, the applicant talks, every answer is understood and checked, and a person makes the final call.",
+  reviewer: "This is what your reviewer sees: the answers, the screening hit, and why it scored high. Go ahead and make the call.",
   agents: "Each of these agents has its own name, voice and house rules. Press play on any card to hear them.",
   playground: "Now try to trip one up. Say something off topic, or read out a card number, and watch how the agent handles it.",
 };
@@ -126,6 +128,15 @@ export function HowItWorks() {
             </li>
           ))}
         </ol>
+      </section>
+
+      <section id="reviewer" className="scroll-mt-24 pt-28">
+        <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">Step 5, up close: the reviewer decides</h2>
+        <p className="mt-3 max-w-[64ch] text-text-dim">
+          Flagged cases arrive with the answers, the screening, the score and its reasons, and a summary.
+          Make the call on this sample.
+        </p>
+        <div className="mt-10"><ConsoleShowcase /></div>
       </section>
 
       <section id="agents" className="scroll-mt-24 pt-28">
