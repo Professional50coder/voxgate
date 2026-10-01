@@ -110,7 +110,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if not any(path.startswith(p) for p in self._paths):
             return False
-        if request.method == "GET":
+        # Reads are free, except speech: GET /tts exists so an <audio> element
+        # can stream it, and every one of those is a paid synthesis call.
+        if request.method == "GET" and not path.startswith("/tts"):
             return False
 
         now = time.monotonic()

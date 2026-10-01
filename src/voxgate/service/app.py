@@ -3,7 +3,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from langgraph.checkpoint.memory import MemorySaver
@@ -380,6 +380,13 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
                           "extract": round((t2 - t1) * 1000, 2),
                           "total": round((time.perf_counter() - t0) * 1000, 2)},
         }
+
+    @app.get("/tts")
+    def tts_get(text: str = Query(min_length=1, max_length=600),
+                pack_id: str | None = Query(default=None, max_length=64)):
+        """Same as POST, as a URL an <audio> element can stream directly, so
+        playback starts on the first chunk with no client-side buffering."""
+        return tts(TTSPayload(text=text, pack_id=pack_id))
 
     @app.post("/tts")
     def tts(body: TTSPayload):

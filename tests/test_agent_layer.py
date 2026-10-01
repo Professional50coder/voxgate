@@ -119,6 +119,7 @@ def test_extract_round_trips_conversation_counters(client):
 
 def test_tts_without_a_key_tells_the_page_to_use_its_own_voice(client):
     assert client.post("/tts", json={"text": "Hello"}).status_code == 503
+    assert client.get("/tts", params={"text": "Hello", "pack_id": "kyc-uae"}).status_code == 503
     assert client.post("/tts", json={"text": "Hi", "pack_id": "nope"}).status_code == 404
 
 
