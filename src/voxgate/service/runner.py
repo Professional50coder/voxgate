@@ -18,9 +18,24 @@ class CaseRunner:
     # How often to re-attempt the advisory lock while waiting it out.
     LOCK_POLL = 0.05
 
+    # Seconds between agent-store checks on the listing path. A miss for a
+    # specific pack checks immediately; see has_pack.
+    STORE_SYNC_INTERVAL = 10.0
+
     def __init__(self, packs, checkpointer_factory, store, bus, tenant=None,
-                 packs_dir=None, lock_pool=None):
+                 packs_dir=None, lock_pool=None, published_dir=None, pack_store=None):
         self.packs, self.store, self.bus = packs, store, bus
+        # Published agents: written here (writable even where packs_dir is
+        # not, e.g. /tmp on Vercel) and regenerated from `pack_store` on every
+        # instance, so an agent published through one is runnable on all.
+        self.published_dir = published_dir if published_dir != packs_dir else None
+        if self.published_dir is not None:
+            try:
+                self.published_dir.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                logger.warning("cannot create %s", self.published_dir, exc_info=True)
+        self.pack_store = pack_store
+        self._last_store_sync = 0.0
         # Where packs live on disk, so a pack published by another worker can be
         # picked up. None disables rescanning, which is what tests that build a
         # runner from a fixed dict want.
@@ -64,10 +79,42 @@ class CaseRunner:
         """
         if pack_id in self.packs:
             return True
-        self.refresh_packs()
+        self.refresh_packs(force_store=True)
         return pack_id in self.packs
 
-    def refresh_packs(self):
+    def _pack_dirs(self):
+        return [d for d in (self.packs_dir, self.published_dir) if d is not None]
+
+    def sync_store(self, force=False):
+        """Write any agent in the store that this instance lacks to disk.
+
+        The store holds specs (data); the pack is regenerated from it with the
+        same deterministic generator publishing uses, so every instance runs
+        byte-identical code without code ever being stored or shipped.
+        """
+        target = self.published_dir or self.packs_dir
+        if self.pack_store is None or target is None:
+            return
+        now = time.monotonic()
+        if not force and now - self._last_store_sync < self.STORE_SYNC_INTERVAL:
+            return
+        self._last_store_sync = now
+        from voxgate.packs.publish import publish_pack
+        try:
+            specs = self.pack_store.specs(self.tenant)
+        except Exception:
+            logger.warning("agent store unavailable", exc_info=True)
+            return
+        for spec in specs:
+            directory = target / spec["pack_id"].replace("-", "_")
+            if (directory / "pack.yaml").exists():
+                continue
+            try:
+                publish_pack(spec, target, overwrite=True)
+            except Exception:
+                logger.warning("could not materialise %s", spec.get("pack_id"), exc_info=True)
+
+    def refresh_packs(self, force_store=False):
         """Load any pack directory that has appeared since the last scan.
 
         Gated on a directory listing rather than a timer. A timer is wrong in
@@ -82,17 +129,19 @@ class CaseRunner:
         """
         if self.packs_dir is None:
             return self.packs
-        try:
-            on_disk = {
-                child.name
-                for child in self.packs_dir.iterdir()
-                if child.is_dir() and (child / "pack.yaml").exists()
-            }
-        except OSError:
-            # The packs directory can be missing in a half-provisioned deploy.
-            # Serving the packs already compiled beats failing the request.
-            logger.warning("could not list %s", self.packs_dir, exc_info=True)
-            return self.packs
+        self.sync_store(force=force_store)
+        on_disk = set()
+        for d in self._pack_dirs():
+            try:
+                on_disk |= {
+                    f"{d}:{child.name}"
+                    for child in d.iterdir()
+                    if child.is_dir() and (child / "pack.yaml").exists()
+                }
+            except OSError:
+                # A packs directory can be missing in a half-provisioned
+                # deploy. Serving the packs already compiled beats failing.
+                logger.warning("could not list %s", d, exc_info=True)
         if on_disk == self._seen_dirs:
             return self.packs
         self._seen_dirs = on_disk
@@ -117,10 +166,13 @@ class CaseRunner:
 
         packs = dict(self.packs)
         graphs = dict(self.graphs)
-        for pack_id, pack in load_packs(self.packs_dir).items():
-            if pack_id not in packs:
-                packs[pack_id] = pack
-                graphs[pack_id] = build_graph(pack, self.checkpointer)
+        for d in self._pack_dirs():
+            if not d.exists():
+                continue
+            for pack_id, pack in load_packs(d).items():
+                if pack_id not in packs:
+                    packs[pack_id] = pack
+                    graphs[pack_id] = build_graph(pack, self.checkpointer)
         self.packs, self.graphs = packs, graphs
         return self.packs
 

@@ -31,7 +31,11 @@ def fresh_dsn():
     name = f"voxgate_mig_{uuid.uuid4().hex[:12]}"
     admin = psycopg.connect(TEST_DB, autocommit=True)
     admin.execute(f'CREATE DATABASE "{name}"')
-    dsn = TEST_DB.rsplit("/", 1)[0] + "/" + name
+    # Keep the query string: hosted Postgres needs `sslmode=require` (and
+    # sometimes `hostaddr`), and dropping it fails the connection.
+    base, _, rest = TEST_DB.rpartition("/")
+    query = ("?" + rest.split("?", 1)[1]) if "?" in rest else ""
+    dsn = f"{base}/{name}{query}"
     try:
         yield dsn
     finally:

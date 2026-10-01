@@ -41,23 +41,49 @@ from fastapi import Header, HTTPException
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_IDENTITY = "operator"
+
+
+def parse_named_keys(raw: str | None) -> list[tuple[str, str]]:
+    """`priya:k1,omar:k2,k3` -> [("priya", "k1"), ("omar", "k2"), ("operator", "k3")].
+
+    A name per key is what lets the audit trail say WHO approved a case rather
+    than "someone with the key". A bare key keeps working and is "operator".
+    """
+    out = []
+    for entry in (raw or "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        name, sep, key = entry.partition(":")
+        if sep and name.strip() and key.strip():
+            out.append((name.strip()[:40], key.strip()))
+        else:
+            out.append((DEFAULT_IDENTITY, entry))
+    return out
+
+
 def parse_keys(raw: str | None) -> list[str]:
-    """Split a comma-separated key list, dropping blanks."""
-    return [k.strip() for k in (raw or "").split(",") if k.strip()]
+    """The keys alone, names stripped."""
+    return [key for _, key in parse_named_keys(raw)]
 
 
-def key_matches(presented: str, allowed: list[str]) -> bool:
-    """Constant-time comparison against every configured key.
+def identify(presented: str, allowed: list[tuple[str, str]]) -> str | None:
+    """Constant-time lookup of who a key belongs to, or None.
 
     `hmac.compare_digest` rather than `==`, and every key is checked rather than
     returning on the first match, so neither the comparison nor the loop leaks
     how much of a guess was correct through timing.
     """
-    found = False
-    for key in allowed:
+    found = None
+    for name, key in allowed:
         if hmac.compare_digest(presented, key):
-            found = True
+            found = name
     return found
+
+
+def key_matches(presented: str, allowed: list[str]) -> bool:
+    return identify(presented, [(DEFAULT_IDENTITY, k) for k in allowed]) is not None
 
 
 def build_admin_guard(settings):
@@ -68,7 +94,7 @@ def build_admin_guard(settings):
     of this app — a dependency that reached for `get_settings()` would ignore
     them and silently authenticate against the wrong configuration.
     """
-    allowed = parse_keys(settings.api_keys)
+    allowed = parse_named_keys(settings.api_keys)
 
     if not allowed:
         logger.warning(
@@ -81,9 +107,10 @@ def build_admin_guard(settings):
     def require_operator(
         x_api_key: str | None = Header(default=None),
         authorization: str | None = Header(default=None),
-    ) -> None:
+    ) -> str:
+        """Returns who authenticated, for the audit trail."""
         if not allowed:
-            return
+            return DEFAULT_IDENTITY
 
         presented = x_api_key
         if not presented and authorization:
@@ -99,7 +126,9 @@ def build_admin_guard(settings):
                 "operator credentials required",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        if not key_matches(presented, allowed):
+        who = identify(presented, allowed)
+        if who is None:
             raise HTTPException(403, "invalid credentials")
+        return who
 
     return require_operator

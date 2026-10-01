@@ -221,6 +221,61 @@ export const askAssistant = (
 export const voiceUrl = (text: string, packId?: string) =>
   `${API_BASE}/tts?${new URLSearchParams({ text: text.slice(0, 600), ...(packId ? { pack_id: packId } : {}) })}`;
 
+export type TranscriptTurn = { role: "agent" | "applicant"; text: string; offset_ms?: number };
+
+/** Append turns to a case's transcript. Omit sessionId on the first call. */
+export const appendTranscript = (caseId: string, turns: TranscriptTurn[], sessionId?: string) =>
+  request<{ session_id: string; turns: number }>(`/cases/${caseId}/transcripts`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, channel: "web", turns }),
+  });
+
+export const finishTranscript = (caseId: string, sessionId: string, outcome = "completed",
+  guardrail: Record<string, number> = {}) =>
+  request<Record<string, unknown>>(`/cases/${caseId}/transcripts/${sessionId}/finish`, {
+    method: "POST",
+    body: JSON.stringify({ outcome, guardrail }),
+  });
+
+export type TranscriptSession = {
+  case_id: string; session_id: string; channel: string; started_at: string | null;
+  finished_at: string | null; turns: number;
+  summary: { narrative?: string; risk_notes?: string[]; outcome?: string; source?: string } | null;
+};
+
+export const listTranscripts = (caseId: string) =>
+  request<{ sessions: TranscriptSession[] }>(`/cases/${caseId}/transcripts`);
+
+export const getTranscript = (caseId: string, sessionId: string) =>
+  request<{ entries: { turn_no: number; role: string; text: string; offset_ms: number }[];
+    summary: TranscriptSession["summary"] }>(`/cases/${caseId}/transcripts/${sessionId}`);
+
+export type SearchHit = { case_id: string; session_id: string; turn_no: number; role: string; text: string; ts: string };
+export const searchTranscripts = (q: string) =>
+  request<{ hits: SearchHit[] }>(`/transcripts/search?${new URLSearchParams({ q })}`);
+
+export type StoreAgent = {
+  pack_id: string; display_name: string; gate_role: string; agent: string; questions: number;
+  source: "built-in" | "published"; published_by: string | null; updated_at: string | null;
+};
+export const getStore = () => request<StoreAgent[]>("/store");
+
+export type AgentAnalytics = {
+  pack_id: string; name: string; cases: number; completed_interviews: number;
+  completion_rate: number; status: Record<string, number>; risk_bands: Record<string, number>;
+  auto_approved: number; human_reviewed: number; automation_rate: number | null;
+  most_reasked: [string, number][]; median_interview_seconds: number | null;
+  guardrail: Record<string, number>;
+};
+export type Analytics = {
+  totals: { cases: number; awaiting_review: number; decided: number; transcripts: number };
+  agents: AgentAnalytics[];
+};
+export const getAnalytics = () => request<Analytics>("/analytics");
+
+export type PublicStats = { interviews_started: number; cases_screened: number; agents_live: number };
+export const getStats = () => request<PublicStats>("/stats");
+
 export const submitDecision = (id: string, action: string, note = "") =>
   request<Case>(`/cases/${id}/decision`, {
     method: "POST",

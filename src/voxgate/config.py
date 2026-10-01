@@ -17,6 +17,12 @@ class Settings(BaseSettings):
                                                     "database_url"))
     packs_dir: Path = REPO_ROOT / "packs"
 
+    # Where agents published from the builder are written. Unset means "same as
+    # packs_dir", which is right locally. On Vercel the repository is read-only,
+    # so they go to /tmp and are regenerated there from the agent store.
+    published_packs_dir: Path | None = Field(
+        default_factory=lambda: Path("/tmp/voxgate-packs") if os.environ.get("VERCEL") else None)
+
     # Where per-session interview transcripts are written. On Vercel only /tmp
     # is writable, and it is per-instance and ephemeral, so a hosted deploy that
     # needs transcripts kept should point this at durable storage.

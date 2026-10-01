@@ -22,6 +22,8 @@ import {
   getCase,
   getPacks,
   submitInterview,
+  appendTranscript,
+  finishTranscript,
   understand,
 } from "@/lib/api";
 import { createRecognizer, normalize, speechSupported, type Recognizer } from "@/lib/speech";
@@ -55,6 +57,23 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
   const [invalidInvite, setInvalidInvite] = useState(false);
   const [confidence, setConfidence] = useState<Record<string, number>>({});
   const countersRef = useRef({ smalltalk_used: 0, off_topic_strikes: 0 });
+
+  // The transcript: every line said, by either side, saved to the case in
+  // order. A promise chain keeps turns ordered; a failed write never stops the
+  // interview, it only costs that line.
+  const caseIdRef = useRef<string | null>(invitedCaseId ?? null);
+  const sessionRef = useRef<string | undefined>(undefined);
+  const startedAtRef = useRef(0);
+  const chainRef = useRef<Promise<void>>(Promise.resolve());
+  const record = useCallback((role: "agent" | "applicant", text: string) => {
+    const id = caseIdRef.current;
+    if (!id || !text.trim()) return;
+    const offset_ms = Math.round(performance.now() - startedAtRef.current);
+    chainRef.current = chainRef.current
+      .then(() => appendTranscript(id, [{ role, text, offset_ms }], sessionRef.current))
+      .then((r) => { sessionRef.current = r.session_id; })
+      .catch(() => {});
+  }, []);
   const answersRef = useRef<Record<string, string>>({});
 
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -178,9 +197,10 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
   const [skipped, setSkipped] = useState<string[]>([]);
 
   const speakAsAgent = useCallback(async (text: string) => {
+    record("agent", text);
     setOrb("speaking");
     await say(text, pack?.pack_id);
-  }, [pack]);
+  }, [pack, record]);
 
   /**
    * One field as a conversation: ask, listen, let the shared brain decide what
@@ -198,6 +218,7 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
         setTranscript("");
         const heard = await listen();
         setTranscript(heard);
+        record("applicant", heard);
         if (!heard.trim()) {
           setNotice("I did not hear anything. Press the mic to try again, or type your answer.");
           setOrb("idle");
@@ -227,7 +248,7 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
       setOrb("idle");
       return ["skipped", ""];
     },
-    [fields, pack, listen, speakAsAgent],
+    [fields, pack, listen, speakAsAgent, record],
   );
 
   const askField = useCallback(
@@ -270,6 +291,16 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
     setOrb("thinking");
     try {
       const submitted = await submitInterview(caseId!, next, confidence);
+      // Close the transcript once every line is written; it gets its summary.
+      const id = caseIdRef.current;
+      chainRef.current = chainRef.current.then(() => {
+        if (id && sessionRef.current) {
+          return finishTranscript(id, sessionRef.current, "completed", {
+            smalltalk: countersRef.current.smalltalk_used,
+            off_topic: countersRef.current.off_topic_strikes,
+          }).then(() => undefined);
+        }
+      }).catch(() => {});
       const updated = await settled(submitted);
       setResult(updated);
       setPhase("done");
@@ -291,6 +322,7 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
       try {
         const created = await createCase(pack?.pack_id ?? "kyc-uae");
         setCaseId(created.case_id);
+        caseIdRef.current = created.case_id;
       } catch (err) {
         if (err instanceof ApiUnreachable) {
           setPhase("offline");
@@ -299,6 +331,7 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
       }
     }
     setPhase("interview");
+    startedAtRef.current = performance.now();
     await openMic().catch(() => null);
     // The pack agent's own greeting, in its own voice.
     await askField(0, pack?.agent?.greeting ?? OPENING);
@@ -307,6 +340,8 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
   async function confirmAnswer() {
     if (!currentField || !draft.trim()) return;
     stopSpeaking();
+    // A typed or corrected answer is part of the record too.
+    if (draft.trim() !== transcript.trim()) record("applicant", draft.trim());
     await advance(fieldIndex, draft.trim());
   }
 

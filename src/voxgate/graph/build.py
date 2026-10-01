@@ -152,7 +152,9 @@ def build_graph(pack: Pack, checkpointer, clock=None):
         })
         if decision["action"] == "request_info":
             return {"reask_fields": ["source_of_funds"], "reask_count": 0,
-                    "force_review": False, "decision": None, "status": "processing"}
+                    "force_review": False, "decision": None, "status": "awaiting_interview"}
+        # `by` stays the role (what the pack requires); `reviewer` is the named
+        # person whose key made the call, when keys are named.
         return {"decision": {**decision, "by": pack.gate_role},
                 "status": "approved" if decision["action"] == "approve" else "rejected"}
 

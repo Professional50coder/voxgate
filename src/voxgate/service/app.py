@@ -2,12 +2,12 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from langgraph.checkpoint.memory import MemorySaver
-from voxgate import transcripts
 from voxgate.config import Settings, get_settings
 from voxgate.packs.loader import load_packs
 from .runner import CaseRunner
@@ -16,6 +16,10 @@ from .events import InMemoryEventBus, PgEventBus
 from .auth import build_admin_guard, parse_keys
 from .middleware import RateLimitMiddleware, RequestContextMiddleware
 from .quota import PgQuota
+from .records import (
+    InMemoryPackStore, InMemoryTranscriptStore, PgPackStore, PgTranscriptStore,
+    new_session_id, valid_session_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,21 @@ class ExtractPayload(BaseModel):
     # stays stateless (serverless instances share no memory).
     smalltalk_used: int = Field(default=0, ge=0, le=50)
     off_topic_strikes: int = Field(default=0, ge=0, le=50)
+
+class TranscriptTurn(BaseModel):
+    role: Literal["agent", "applicant"]
+    text: str = Field(min_length=1, max_length=2_000)
+    offset_ms: int = Field(default=0, ge=0, le=86_400_000)
+
+class TranscriptAppend(BaseModel):
+    # Omitted on the first write of a session; the server issues one.
+    session_id: str | None = Field(default=None, max_length=80)
+    channel: Literal["web", "phone"] = "web"
+    turns: list[TranscriptTurn] = Field(min_length=1, max_length=50)
+
+class TranscriptFinish(BaseModel):
+    outcome: str = Field(default="completed", max_length=40)
+    guardrail: dict[str, int] = Field(default_factory=dict, max_length=10)
 
 class TTSPayload(BaseModel):
     text: str = Field(min_length=1, max_length=600)
@@ -114,6 +133,7 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
             # under it borrows from `pool`, so sharing one pool deadlocks.
             lock_pool = open_pool_sync(settings.database_url, min_size=0, max_size=10)
             quota = PgQuota(pool, limit=settings.quota_daily_limit)
+            pack_store = PgPackStore(pool)
         else:
             store = InMemoryCaseStore()
             bus = InMemoryEventBus()
@@ -121,10 +141,22 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
             # No database, no shared counter. The burst window is the right
             # amount of machinery for a single-process dev run.
             quota = None
+            pack_store = None
         runner = CaseRunner(
             load_packs(settings.packs_dir), factory, store, bus,
             packs_dir=settings.packs_dir, lock_pool=lock_pool,
+            published_dir=settings.published_packs_dir, pack_store=pack_store,
         )
+        # A fresh instance regenerates every published agent before serving.
+        runner.refresh_packs(force_store=True)
+
+    # Transcripts and the agent store sit on the same database as the cases,
+    # or in memory when there is none (single process, and the test suite).
+    _pool = getattr(runner.store, "_pool", None)
+    transcript_store = PgTranscriptStore(_pool) if _pool is not None else InMemoryTranscriptStore()
+    packs_store = getattr(runner, "pack_store", None) or (
+        PgPackStore(_pool) if _pool is not None else InMemoryPackStore())
+    _stats_cache: dict = {"at": -1e9, "value": None}
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         # Warm the Groq model list in the background, so the first applicant's
@@ -450,8 +482,8 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
             "spec": draft.to_spec(),
         }
 
-    @app.post("/packs/publish", status_code=201, dependencies=[operator])
-    def publish(body: PublishPayload):
+    @app.post("/packs/publish", status_code=201)
+    def publish(body: PublishPayload, who: str = operator):
         """Write a drafted spec to disk and compile it into a live graph.
 
         After this returns, the pack appears in GET /packs and POST /cases can
@@ -467,14 +499,17 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
         """
         from voxgate.packs.publish import PublishError, publish_pack, register
 
+        target = runner.published_dir or settings.packs_dir
         try:
-            pack = publish_pack(
-                body.spec, settings.packs_dir, overwrite=body.overwrite
-            )
+            pack = publish_pack(body.spec, target, overwrite=body.overwrite)
         except PublishError as exc:
             raise HTTPException(422, str(exc)) from exc
 
         register(runner, pack, runner.checkpointer)
+        # Into the agent store, so every other instance (and every future one)
+        # regenerates it. Published to disk first: a spec the generator rejects
+        # never reaches the store.
+        packs_store.save(runner.tenant, body.spec, who)
         return {
             "pack_id": pack.pack_id,
             "display_name": pack.display_name,
@@ -516,13 +551,16 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
         except KeyError as exc:
             raise HTTPException(409, "case is not awaiting an interview") from exc
 
-    @app.post("/cases/{case_id}/decision", dependencies=[operator])
-    def decision(case_id: str, body: DecisionPayload):
+    @app.post("/cases/{case_id}/decision")
+    def decision(case_id: str, body: DecisionPayload, who: str = operator):
         case = _case_or_404(case_id)
         if not case.get("interrupt") or case["interrupt"]["type"] != "review":
             raise HTTPException(409, "case is not awaiting review")
         try:
-            return runner.resume(case_id, {"action": body.action, "note": body.note})
+            # `reviewer` is the named key holder, so the audit trail records
+            # the person who decided, not only the role the pack requires.
+            return runner.resume(case_id, {"action": body.action, "note": body.note,
+                                           "reviewer": who})
         except KeyError as exc:
             raise HTTPException(409, "case is not awaiting review") from exc
 
@@ -537,20 +575,89 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
         cursor = max((e.get("seq", after) for e in batch), default=after)
         return {"events": batch, "cursor": cursor}
 
-    # Transcripts carry applicant PII, so both reads are operator-only.
+    # Writes are open, like the rest of the applicant flow: the case id is the
+    # capability (see service/auth.py). Reads carry applicant PII, so they are
+    # operator-only.
+    @app.post("/cases/{case_id}/transcripts")
+    def append_transcript(case_id: str, body: TranscriptAppend):
+        _case_or_404(case_id)
+        session_id = body.session_id or new_session_id()
+        if not valid_session_id(session_id):
+            raise HTTPException(422, "invalid session id")
+        n = transcript_store.append(runner.tenant, case_id, session_id,
+                                    [t.model_dump() for t in body.turns], channel=body.channel)
+        return {"session_id": session_id, "turns": n}
+
+    @app.post("/cases/{case_id}/transcripts/{session_id}/finish")
+    def finish_transcript(case_id: str, session_id: str, body: TranscriptFinish):
+        """Close a session and write its summary (template, or model when keyed)."""
+        case = _case_or_404(case_id)
+        session = transcript_store.load(runner.tenant, case_id, session_id)
+        if session is None:
+            raise HTTPException(404, "unknown transcript session")
+        from voxgate.ml.summarize import SessionSummarizer
+        pack = runner.packs.get(case["pack_id"])
+        summary = SessionSummarizer(settings, purpose=pack.display_name if pack else "intake").summarize(
+            case_id=case_id, session_id=session_id, entries=session["entries"],
+            fields_collected=case.get("fields") or {}, outcome=body.outcome,
+            duration_ms=max((e.get("offset_ms") or 0) for e in session["entries"]) if session["entries"] else 0,
+            guardrail_stats=body.guardrail)
+        summary.update({"outcome": body.outcome, "guardrail": body.guardrail,
+                        "turns": len(session["entries"])})
+        transcript_store.finish(runner.tenant, case_id, session_id, summary)
+        return summary
+
     @app.get("/cases/{case_id}/transcripts", dependencies=[operator])
     def case_transcripts(case_id: str):
         _case_or_404(case_id)
         return {"case_id": case_id,
-                "sessions": transcripts.list_sessions(case_id, settings)}
+                "sessions": transcript_store.sessions(runner.tenant, case_id)}
 
     @app.get("/cases/{case_id}/transcripts/{session_id}", dependencies=[operator])
     def case_transcript(case_id: str, session_id: str):
         _case_or_404(case_id)
-        session = transcripts.load_session(case_id, session_id, settings)
+        session = transcript_store.load(runner.tenant, case_id, session_id)
         if session is None:
             raise HTTPException(404, "unknown transcript session")
         return session
+
+    @app.get("/transcripts/search", dependencies=[operator])
+    def search_transcripts(q: str = Query(min_length=2, max_length=200), limit: int = 20):
+        """Full-text search across every interview's words."""
+        return {"query": q, "hits": transcript_store.search(runner.tenant, q, limit)}
+
+    @app.get("/store")
+    def agent_store():
+        """Every agent that can be run: built in, or published from the builder."""
+        published = {p["pack_id"]: p for p in packs_store.listing(runner.tenant)}
+        runner.refresh_packs()
+        return [{"pack_id": p.pack_id, "display_name": p.display_name,
+                 "gate_role": p.gate_role, "agent": p.agent.name,
+                 "questions": len(p.schema_model.model_fields),
+                 "source": "published" if p.pack_id in published else "built-in",
+                 "published_by": published.get(p.pack_id, {}).get("created_by"),
+                 "updated_at": published.get(p.pack_id, {}).get("updated_at")}
+                for p in runner.packs.values()]
+
+    @app.get("/analytics", dependencies=[operator])
+    def analytics():
+        """Per-agent performance, computed from the cases and transcripts."""
+        from voxgate.service.analytics import compute
+        return compute(runner.store.list(runner.tenant, None),
+                       transcript_store.all_sessions(runner.tenant),
+                       {pid: p.display_name for pid, p in runner.packs.items()})
+
+    @app.get("/stats")
+    def public_stats():
+        """Aggregate counts only, safe to show on the public site."""
+        # Public and unauthenticated, so cached: without this every page view
+        # would read the whole case table.
+        from voxgate.service.analytics import public
+        now = time.monotonic()
+        if now - _stats_cache["at"] > 60:
+            _stats_cache["value"] = public(runner.store.list(runner.tenant, None), len(runner.packs))
+            _stats_cache["at"] = now
+        return _stats_cache["value"]
 
     @app.websocket("/cases/{case_id}/events")
     async def events(ws: WebSocket, case_id: str):

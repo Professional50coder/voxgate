@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { AppNav } from "@/components/app-nav";
 import { ApiUnreachable, NotAuthorized, type Case, type Pack, getPacks, listCases } from "@/lib/api";
+import { Insights } from "@/components/insights";
 import { OperatorKeyGate } from "@/components/operator-key-gate";
 
 const MONO = { fontFamily: "var(--font-geist-mono), monospace" } as const;
@@ -275,6 +276,7 @@ export default function Dashboard() {
                 </ul>
               )}
             </section>
+            <Insights />
           </>
         ) : null}
       </main>
