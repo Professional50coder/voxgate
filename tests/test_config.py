@@ -13,3 +13,11 @@ def test_env_override(monkeypatch):
     s = Settings()
     assert s.database_url == "postgresql://x"
     assert s.packs_dir == Path("C:/tmp/pk")
+
+
+def test_secrets_are_stripped_of_byte_order_marks_and_whitespace():
+    from voxgate.config import Settings
+    s = Settings(cartesia_api_key="﻿sk_abc \n", groq_api_key="﻿", api_keys=" k1,k2 ")
+    assert s.cartesia_api_key == "sk_abc"
+    assert s.groq_api_key is None
+    assert s.api_keys == "k1,k2"

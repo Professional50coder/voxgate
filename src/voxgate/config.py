@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -47,6 +47,21 @@ class Settings(BaseSettings):
     # Optional comma-separated pool. Groq rate limits are per key AND per model,
     # so N keys times M models is the real headroom.
     groq_api_keys: str | None = Field(default=None, alias="GROQ_API_KEYS")
+
+    @field_validator("api_keys", "groq_api_key", "groq_api_keys", "cartesia_api_key",
+                     "exa_api_key", mode="before")
+    @classmethod
+    def _clean_secret(cls, v):
+        """Strip whitespace and byte-order marks from pasted or piped secrets.
+
+        A BOM is invisible in every dashboard, and Windows PowerShell 5.1 adds
+        one when piping a value to a CLI. It once corrupted every key on a live
+        deploy, failing as 'ascii codec can't encode \\ufeff' deep inside httpx.
+        """
+        if isinstance(v, str):
+            v = v.replace("﻿", "").strip()
+            return v or None
+        return v
 
     def groq_key_pool(self) -> list[str]:
         """Every usable key, preferred first, de-duplicated."""
