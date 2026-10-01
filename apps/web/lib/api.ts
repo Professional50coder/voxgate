@@ -89,7 +89,11 @@ export type Case = {
   status: string;
   seq: number;
   fields: Record<string, unknown>;
-  score: { probability: number | null; band: string } | null;
+  score: {
+    probability: number | null;
+    band: string;
+    contributions?: { feature: string; value: number; weight: number; contribution: number }[];
+  } | null;
   decision: { action: string; by: string; note?: string } | null;
   check_results: { check_name: string; status: string }[];
   audit: AuditEntry[];

@@ -11,6 +11,8 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
+import { CapturePanel } from "@/components/capture-panel";
+import { OutcomeCard } from "@/components/outcome-card";
 import { VoiceOrb, type OrbState } from "@/components/voice-orb";
 import {
   ApiUnreachable,
@@ -172,7 +174,8 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
 
   // askField and advance call each other; this ref breaks the declaration
   // cycle and is pointed at the latest `advance` from an effect below.
-  const advanceRef = useRef<(index: number, value: string) => Promise<void>>(async () => {});
+  const advanceRef = useRef<(index: number, value: string, bridge?: string) => Promise<void>>(async () => {});
+  const [skipped, setSkipped] = useState<string[]>([]);
 
   const speakAsAgent = useCallback(async (text: string) => {
     setOrb("speaking");
@@ -241,14 +244,17 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
       if (outcome === "accepted") {
         await advanceRef.current(index, value);
       } else if (outcome === "skipped") {
-        setNotice("No problem, a colleague will confirm that one with you. Type it if you would like, or continue.");
+        // Leave it for a person and keep the conversation moving, the way the
+        // phone agent does, instead of stalling on a field nobody can answer.
+        setSkipped((s) => (s.includes(field) ? s : [...s, field]));
+        await advanceRef.current(index, "", "That's fine, a colleague will confirm that one with you.");
       }
     },
     [fields, pack, converse],
   );
 
   /** Record the answer for `index` and ask the next question, or submit. */
-  const advance = useCallback(async (index: number, value: string) => {
+  const advance = useCallback(async (index: number, value: string, bridge?: string) => {
     const field = fields[index];
     const next = value ? { ...answersRef.current, [field]: value } : { ...answersRef.current };
     answersRef.current = next;
@@ -256,25 +262,25 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
 
     if (index + 1 < fields.length) {
       setFieldIndex(index + 1);
-      // Read back what was taken, briefly, so a wrong value can be corrected.
-      await askField(index + 1, value ? "Thank you." : undefined);
+      await askField(index + 1, bridge ?? (value ? "Thank you." : undefined));
       return;
     }
 
     setPhase("submitting");
     setOrb("thinking");
     try {
-      const updated = await submitInterview(caseId!, next, confidence);
+      const submitted = await submitInterview(caseId!, next, confidence);
+      const updated = await settled(submitted);
       setResult(updated);
       setPhase("done");
-      await speakAsAgent(closingLine(updated));
+      await speakAsAgent(closingLine(updated, pack?.gate_role));
       setOrb("idle");
     } catch {
       setNotice("Could not submit the interview. The backend may have stopped.");
       setPhase("interview");
       setOrb("idle");
     }
-  }, [askField, caseId, confidence, fields, speakAsAgent]);
+  }, [askField, caseId, confidence, fields, pack, speakAsAgent]);
 
   useEffect(() => {
     advanceRef.current = advance;
@@ -493,38 +499,50 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
               {result.status === "approved" ? "You are approved." : "Thank you."}
             </h1>
             <p className="mt-5 max-w-[46ch] text-[15px] leading-relaxed text-text-dim">
-              {closingLine(result)}
+              {closingLine(result, pack?.gate_role)}
             </p>
-            <dl className="mt-9 w-full max-w-[420px] space-y-3 text-left">
-              {Object.entries(answers).map(([k, v]) => (
-                <div
-                  key={k}
-                  className="flex justify-between gap-4 border-b border-glass-border-soft pb-2.5"
-                >
-                  <dt className="text-[13px] text-text-faint">{k.replace(/_/g, " ")}</dt>
-                  <dd className="text-[13.5px]">{v}</dd>
-                </div>
-              ))}
-            </dl>
-            <Link
-              href="/console"
-              className="mt-9 rounded-[var(--r-pill)] border border-glass-border px-6 py-3 text-[14px] font-medium text-text transition-all hover:border-white/25"
-            >
-              See it in the reviewer console
-            </Link>
+            <OutcomeCard result={result} gateRole={pack?.gate_role ?? "reviewer"} />
           </>
         ) : null}
       </main>
+
+      {phase !== "intro" && fields.length ? (
+        <div className="mx-auto w-full max-w-[640px] px-6 pb-16 lg:fixed lg:right-8 lg:top-24 lg:w-[300px] lg:max-w-none lg:px-0">
+          <CapturePanel fields={fields} current={phase === "done" ? undefined : currentField}
+            answers={answers} skipped={skipped} />
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function closingLine(c: Case): string {
+/**
+ * Screening runs after submission, so the case comes back "processing". Wait
+ * for it to settle, briefly, so the result card shows a real outcome.
+ */
+async function settled(c: Case, timeoutMs = 20_000): Promise<Case> {
+  const until = Date.now() + timeoutMs;
+  let current = c;
+  while (current.status === "processing" && Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 600));
+    try {
+      current = await getCase(c.case_id);
+    } catch {
+      break;
+    }
+  }
+  return current;
+}
+
+function closingLine(c: Case, gateRole = "compliance officer"): string {
   if (c.status === "approved") {
     return "Your application passed our checks and your account is open.";
   }
   if (c.status === "awaiting_review") {
-    return "Your application needs a short review by a compliance officer. We will be in touch.";
+    return `Your application needs a short review by a ${gateRole.toLowerCase()}. We will be in touch.`;
+  }
+  if (c.status === "awaiting_interview") {
+    return "Thank you. A couple of answers need confirming, and a member of the team will follow up.";
   }
   if (c.status === "rejected") {
     return "We are not able to open an account at this time.";

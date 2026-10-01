@@ -139,6 +139,32 @@ body {
   }
 }
 
+/* A value arriving: rises in from a soft blur. Used where something just
+   happened (a field captured, a score factor revealed), never as decoration. */
+.land {
+  animation: land 0.55s var(--ease-out-expo) both;
+}
+
+@keyframes land {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(4px);
+  }
+}
+
+/* A bar filling to its value, so a score reads as being worked out. */
+.grow-x {
+  transform-origin: left;
+  animation: grow-x 0.9s var(--ease-out-expo) both;
+}
+
+@keyframes grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+
 /* Data flowing along an edge: a dashed stroke with a moving offset. */
 .flow-edge {
   stroke-dasharray: 1.5 3;
