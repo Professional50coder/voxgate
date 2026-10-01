@@ -121,8 +121,10 @@ def build_graph(pack: Pack, checkpointer, clock=None):
         return "auto_approve"
 
     def medium_reask(state):
-        top = max((c for c in state["score"]["contributions"]), key=lambda c: c["contribution"])
-        field = pack.feature_field_hints.get(top["feature"], "full_name")
+        contributions = state["score"].get("contributions") or []
+        top = max(contributions, key=lambda c: c["contribution"], default=None)
+        field = pack.feature_field_hints.get(top["feature"], "full_name") \
+            if top is not None else "full_name"
         return {"reask_fields": [field], "reask_count": state["reask_count"] + 1}
 
     def auto_approve(state):

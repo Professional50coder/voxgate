@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from langgraph.checkpoint.memory import MemorySaver
+from voxgate import transcripts
 from voxgate.config import Settings, get_settings
 from voxgate.packs.loader import load_packs
 from .runner import CaseRunner
@@ -417,6 +418,32 @@ def create_app(settings: Settings | None = None, runner: CaseRunner | None = Non
             return runner.resume(case_id, {"action": body.action, "note": body.note})
         except KeyError as exc:
             raise HTTPException(409, "case is not awaiting review") from exc
+
+    @app.get("/cases/{case_id}/events")
+    def poll_events(case_id: str, after: int = 0, wait: float = 0.0):
+        """Long-poll fallback for hosts with no WebSocket support (Vercel).
+
+        Same seq-based cursor as the WebSocket: pass back `cursor` as `after`.
+        """
+        _case_or_404(case_id)
+        batch = runner.bus.wait(case_id, after, max(0.0, min(wait, 10.0)))
+        cursor = max((e.get("seq", after) for e in batch), default=after)
+        return {"events": batch, "cursor": cursor}
+
+    # Transcripts carry applicant PII, so both reads are operator-only.
+    @app.get("/cases/{case_id}/transcripts", dependencies=[operator])
+    def case_transcripts(case_id: str):
+        _case_or_404(case_id)
+        return {"case_id": case_id,
+                "sessions": transcripts.list_sessions(case_id, settings)}
+
+    @app.get("/cases/{case_id}/transcripts/{session_id}", dependencies=[operator])
+    def case_transcript(case_id: str, session_id: str):
+        _case_or_404(case_id)
+        session = transcripts.load_session(case_id, session_id, settings)
+        if session is None:
+            raise HTTPException(404, "unknown transcript session")
+        return session
 
     @app.websocket("/cases/{case_id}/events")
     async def events(ws: WebSocket, case_id: str):

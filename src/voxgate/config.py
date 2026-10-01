@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -10,6 +11,13 @@ class Settings(BaseSettings):
         populate_by_name=True)
     database_url: str | None = None
     packs_dir: Path = REPO_ROOT / "packs"
+
+    # Where per-session interview transcripts are written. On Vercel only /tmp
+    # is writable, and it is per-instance and ephemeral, so a hosted deploy that
+    # needs transcripts kept should point this at durable storage.
+    transcripts_dir: Path = Field(
+        default_factory=lambda: Path("/tmp/voxgate-transcripts")
+        if os.environ.get("VERCEL") else REPO_ROOT / "transcripts")
 
     # Comma-separated operator keys. Unset means authentication is OFF and the
     # operator endpoints are open; that is reported by /health/ready and warned
