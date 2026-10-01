@@ -139,6 +139,18 @@ body {
   }
 }
 
+/* Data flowing along an edge: a dashed stroke with a moving offset. */
+.flow-edge {
+  stroke-dasharray: 1.5 3;
+  animation: flow 1.6s linear infinite;
+}
+
+@keyframes flow {
+  to {
+    stroke-dashoffset: -9;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .aurora {
     animation: none;

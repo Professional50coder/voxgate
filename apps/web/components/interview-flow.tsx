@@ -20,13 +20,23 @@ import {
   getCase,
   getPacks,
   submitInterview,
+  understand,
 } from "@/lib/api";
-import { createRecognizer, normalize, speak, speechSupported, type Recognizer } from "@/lib/speech";
+import { createRecognizer, normalize, speechSupported, type Recognizer } from "@/lib/speech";
+import { agentAnalyser, say, stopSpeaking } from "@/lib/voice";
 
 type Phase = "intro" | "interview" | "submitting" | "done" | "offline";
 
 const OPENING =
-  "Hello. I will ask you a few questions to open your account. Please answer out loud after each one.";
+  "Hello. I will ask you a few questions to get your application started. Please answer out loud after each one.";
+
+// Above this the agent takes the answer and moves on by itself, the way a
+// person would; below it the value is put in the box for the applicant to
+// confirm or correct.
+const AUTO_ACCEPT = 0.75;
+
+// Turns the agent will spend on one field before leaving it for a colleague.
+const MAX_TURNS_PER_FIELD = 4;
 
 export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
   const [pack, setPack] = useState<Pack | null>(null);
@@ -41,6 +51,9 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
   const [result, setResult] = useState<Case | null>(null);
   const [caseId, setCaseId] = useState<string | null>(invitedCaseId ?? null);
   const [invalidInvite, setInvalidInvite] = useState(false);
+  const [confidence, setConfidence] = useState<Record<string, number>>({});
+  const countersRef = useRef({ smalltalk_used: 0, off_topic_strikes: 0 });
+  const answersRef = useRef<Record<string, string>>({});
 
   const analyserRef = useRef<AnalyserNode | null>(null);
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
@@ -63,9 +76,11 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
     () => true,
   );
 
+  // ?pack=<id> picks the agent; an invite's case decides it below instead.
   useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("pack") ?? "kyc-uae";
     getPacks()
-      .then((packs) => setPack(packs[0] ?? null))
+      .then((packs) => setPack(packs.find((p) => p.pack_id === wanted) ?? packs[0] ?? null))
       .catch((err) => {
         if (err instanceof ApiUnreachable) setPhase("offline");
       });
@@ -88,7 +103,13 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
         if (c.status !== "awaiting_interview" && c.interrupt?.type !== "interview") {
           setResult(c);
           setPhase("done");
+          return;
         }
+        // The invite's pack, not whichever one the URL or the default named.
+        getPacks().then((packs) => {
+          const own = packs.find((p) => p.pack_id === c.pack_id);
+          if (own && !cancelled) setPack(own);
+        }).catch(() => null);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -106,7 +127,7 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
     return () => {
       recRef.current?.abort();
       streamRef.current?.getTracks().forEach((t) => t.stop());
-      if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+      stopSpeaking();
     };
   }, []);
 
@@ -149,8 +170,65 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
     });
   }, []);
 
+  // askField and advance call each other; this ref breaks the declaration
+  // cycle and is pointed at the latest `advance` from an effect below.
+  const advanceRef = useRef<(index: number, value: string) => Promise<void>>(async () => {});
+
+  const speakAsAgent = useCallback(async (text: string) => {
+    setOrb("speaking");
+    await say(text, pack?.pack_id);
+  }, [pack]);
+
+  /**
+   * One field as a conversation: ask, listen, let the shared brain decide what
+   * the applicant did, and either take the answer or say what the agent would
+   * say and listen again. Ends with a value in the box, or moved on.
+   */
+  const converse = useCallback(
+    async (index: number, opening: string): Promise<["accepted" | "review" | "skipped", string]> => {
+      const field = fields[index];
+      if (!field || !pack) return ["skipped", ""];
+      let line = opening;
+      for (let turn = 0; turn < MAX_TURNS_PER_FIELD; turn++) {
+        await speakAsAgent(line);
+        setOrb("listening");
+        setTranscript("");
+        const heard = await listen();
+        setTranscript(heard);
+        if (!heard.trim()) {
+          setNotice("I did not hear anything. Press the mic to try again, or type your answer.");
+          setOrb("idle");
+          return ["review", ""];
+        }
+        setOrb("thinking");
+        let r;
+        try {
+          r = await understand(pack.pack_id, field, heard, turn, countersRef.current);
+        } catch {
+          // Offline brain: fall back to the browser's own keyword mapping.
+          const value = normalize(field, heard);
+          setDraft(value ?? heard);
+          setOrb("idle");
+          return ["review", value ?? heard];
+        }
+        countersRef.current = r.counters;
+        if (r.value) {
+          setDraft(r.value);
+          setConfidence((c) => ({ ...c, [field]: r.confidence }));
+          setOrb("idle");
+          return [r.confidence >= AUTO_ACCEPT ? "accepted" : "review", r.value];
+        }
+        if (!r.prompt) break;
+        line = r.prompt;
+      }
+      setOrb("idle");
+      return ["skipped", ""];
+    },
+    [fields, pack, listen, speakAsAgent],
+  );
+
   const askField = useCallback(
-    async (index: number) => {
+    async (index: number, preface?: string) => {
       const field = fields[index];
       if (!field) return;
       const text = pack?.reask_hints?.[field] ?? `Please tell me your ${field.replace(/_/g, " ")}.`;
@@ -159,30 +237,48 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
       setDraft("");
       setNotice(null);
 
-      setOrb("speaking");
-      await speak(text);
-
-      setOrb("listening");
-      const heard = await listen();
-      setOrb("thinking");
-      setTranscript(heard);
-
-      const value = normalize(field, heard);
-      if (value === null) {
-        setDraft(heard);
-        setNotice(
-          heard
-            ? "I did not catch that clearly. Correct it below, or press the mic to answer again."
-            : "I did not hear anything. Press the mic to try again, or type your answer.",
-        );
-        setOrb("idle");
-        return;
+      const [outcome, value] = await converse(index, preface ? `${preface} ${text}` : text);
+      if (outcome === "accepted") {
+        await advanceRef.current(index, value);
+      } else if (outcome === "skipped") {
+        setNotice("No problem, a colleague will confirm that one with you. Type it if you would like, or continue.");
       }
-      setDraft(value);
-      setOrb("idle");
     },
-    [fields, pack, listen],
+    [fields, pack, converse],
   );
+
+  /** Record the answer for `index` and ask the next question, or submit. */
+  const advance = useCallback(async (index: number, value: string) => {
+    const field = fields[index];
+    const next = value ? { ...answersRef.current, [field]: value } : { ...answersRef.current };
+    answersRef.current = next;
+    setAnswers(next);
+
+    if (index + 1 < fields.length) {
+      setFieldIndex(index + 1);
+      // Read back what was taken, briefly, so a wrong value can be corrected.
+      await askField(index + 1, value ? "Thank you." : undefined);
+      return;
+    }
+
+    setPhase("submitting");
+    setOrb("thinking");
+    try {
+      const updated = await submitInterview(caseId!, next, confidence);
+      setResult(updated);
+      setPhase("done");
+      await speakAsAgent(closingLine(updated));
+      setOrb("idle");
+    } catch {
+      setNotice("Could not submit the interview. The backend may have stopped.");
+      setPhase("interview");
+      setOrb("idle");
+    }
+  }, [askField, caseId, confidence, fields, speakAsAgent]);
+
+  useEffect(() => {
+    advanceRef.current = advance;
+  }, [advance]);
 
   async function start() {
     if (!invitedCaseId) {
@@ -198,50 +294,22 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
     }
     setPhase("interview");
     await openMic().catch(() => null);
-    setOrb("speaking");
-    await speak(OPENING);
-    await askField(0);
+    // The pack agent's own greeting, in its own voice.
+    await askField(0, pack?.agent?.greeting ?? OPENING);
   }
 
   async function confirmAnswer() {
     if (!currentField || !draft.trim()) return;
-    const value = normalize(currentField, draft) ?? draft.trim();
-    const next = { ...answers, [currentField]: value };
-    setAnswers(next);
-
-    if (fieldIndex + 1 < fields.length) {
-      setFieldIndex(fieldIndex + 1);
-      await askField(fieldIndex + 1);
-      return;
-    }
-
-    setPhase("submitting");
-    setOrb("thinking");
-    try {
-      const updated = await submitInterview(caseId!, next);
-      setResult(updated);
-      setPhase("done");
-      setOrb("speaking");
-      await speak(closingLine(updated));
-      setOrb("idle");
-    } catch {
-      setNotice("Could not submit the interview. The backend may have stopped.");
-      setPhase("interview");
-      setOrb("idle");
-    }
+    stopSpeaking();
+    await advance(fieldIndex, draft.trim());
   }
 
   async function retryField() {
     if (!currentField) return;
-    setOrb("listening");
-    setTranscript("");
-    const heard = await listen();
-    setOrb("thinking");
-    setTranscript(heard);
-    const value = normalize(currentField, heard);
-    setDraft(value ?? heard);
-    setNotice(value === null && heard ? "Still unclear. You can edit it below." : null);
-    setOrb("idle");
+    stopSpeaking();
+    setNotice(null);
+    const [outcome, value] = await converse(fieldIndex, "Go ahead.");
+    if (outcome === "accepted") await advance(fieldIndex, value);
   }
 
   if (invalidInvite) {
@@ -294,7 +362,12 @@ export function InterviewFlow({ caseId: invitedCaseId }: { caseId?: string }) {
       </header>
 
       <main className="mx-auto flex max-w-[640px] flex-col items-center px-6 pb-24 pt-10 text-center">
-        <VoiceOrb state={orb} analyser={analyser} />
+        <VoiceOrb state={orb} analyser={orb === "speaking" ? agentAnalyser() : analyser} />
+        {pack?.agent ? (
+          <p className="mt-3 text-[13px] text-text-dim">
+            <span className="font-semibold text-text">{pack.agent.name}</span> · {pack.display_name}
+          </p>
+        ) : null}
 
         <p className="mt-5 h-5 text-[13px] uppercase tracking-[0.16em] text-text-faint" aria-live="polite">
           {orb === "listening" ? "Listening" : orb === "speaking" ? "Speaking" : orb === "thinking" ? "Thinking" : ""}

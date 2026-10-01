@@ -1,10 +1,10 @@
 import Link from "next/link";
 
 const LINKS = [
-  { href: "#problem", label: "Why" },
-  { href: "#pipeline", label: "How it works" },
+  { href: "/#problem", label: "Why" },
+  { href: "/how-it-works", label: "How it works" },
   { href: "/agents", label: "Agent library" },
-  { href: "#trust", label: "Compliance" },
+  { href: "/#trust", label: "Compliance" },
 ];
 
 export function Nav() {

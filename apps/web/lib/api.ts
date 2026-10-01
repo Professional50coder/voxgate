@@ -15,6 +15,17 @@
  */
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
+export type AgentProfile = {
+  name: string;
+  greeting: string | null;
+  voice: { provider: string; primary: string; fallback: string | null; language: string; speed: number };
+  max_smalltalk: number;
+  blocked_topics: string[];
+  sensitive_terms: string[];
+  process_answers: Record<string, string>;
+  knowledge: string;
+};
+
 export type Pack = {
   pack_id: string;
   display_name: string;
@@ -22,6 +33,37 @@ export type Pack = {
   fields: string[];
   /** The pack's own question phrasings, keyed by field. Source of truth for /apply. */
   reask_hints?: Record<string, string>;
+  field_values?: Record<string, string[]>;
+  /** The pack's voice agent: persona, voice and house rules. */
+  agent?: AgentProfile;
+};
+
+/** One turn through the shared brain: what the person did, and what to say next. */
+export type Understanding = {
+  field: string;
+  value: string | null;
+  confidence: number;
+  source: string;
+  intent: string;
+  is_answer: boolean;
+  /** "agent" when this pack's own rule decided, "platform" for shared patterns. */
+  rule: "agent" | "platform";
+  prompt: string | null;
+  counters: { smalltalk_used: number; off_topic_strikes: number };
+  timing_ms: { understand: number; extract: number; total: number };
+};
+
+export type AssistantAction =
+  | "none" | "start_interview" | "open_console" | "open_agent_builder"
+  | "show_pipeline" | "show_packs" | "next_step";
+
+export type AssistantReply = {
+  reply: string;
+  action: AssistantAction;
+  suggestions: string[];
+  source: "llm" | "offline";
+  model: string | null;
+  ms: number;
 };
 
 export type CaseInterrupt = {
@@ -149,6 +191,33 @@ export const submitInterview = (
     method: "POST",
     body: JSON.stringify({ fields, confidence }),
   });
+
+export const understand = (
+  packId: string,
+  field: string,
+  spoken: string,
+  attempt = 0,
+  counters = { smalltalk_used: 0, off_topic_strikes: 0 },
+) =>
+  request<Understanding>(`/packs/${packId}/extract`, {
+    method: "POST",
+    body: JSON.stringify({ field, spoken, attempt, ...counters }),
+  });
+
+export const askAssistant = (
+  message: string,
+  page: string,
+  history: { role: string; text: string }[] = [],
+  context?: string,
+) =>
+  request<AssistantReply>("/assistant", {
+    method: "POST",
+    body: JSON.stringify({ message, page, history: history.slice(-10), context }),
+  });
+
+/** A URL an <audio> element can stream, in this pack agent's voice. */
+export const voiceUrl = (text: string, packId?: string) =>
+  `${API_BASE}/tts?${new URLSearchParams({ text: text.slice(0, 600), ...(packId ? { pack_id: packId } : {}) })}`;
 
 export const submitDecision = (id: string, action: string, note = "") =>
   request<Case>(`/cases/${id}/decision`, {

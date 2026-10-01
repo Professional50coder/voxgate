@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { FloatingAssistant } from "@/components/voice-assistant";
 
 // next/font self-hosts at build time, so there is no runtime CDN fetch.
 const geist = Geist({ variable: "--font-geist", subsets: ["latin"], display: "swap" });
@@ -197,6 +198,7 @@ export default function RootLayout({
         <div className="aurora" aria-hidden="true" />
         <div className="grain" aria-hidden="true" />
         <div className="relative z-10">{children}</div>
+        <FloatingAssistant />
       </body>
     </html>
   );
