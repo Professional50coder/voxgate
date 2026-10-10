@@ -1,7 +1,8 @@
 [project]
 name = "voxgate"
 version = "0.1.0"
-description = "Voice-driven durable workflow orchestrator (LangGraph + Pipecat)"
+description = "Voice interviews for regulated intake: verbatim questions, explainable scoring, human review gate (LangGraph + FastAPI)"
+license = { text = "MIT" }
 requires-python = ">=3.12"
 dependencies = [
     "langgraph>=0.4",
