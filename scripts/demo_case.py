@@ -10,7 +10,7 @@ being created, interviewed, scored, and (for --risky) reviewed by a human.
 import argparse
 import httpx
 
-BASE = "http://127.0.0.1:8000"
+BASE = __import__("os").environ.get("VOXGATE_BASE", "http://127.0.0.1:8000")
 
 CLEAN = {"full_name": "Priya Raghavan", "dob": "1992-04-15", "nationality": "IN",
          "residency_status": "uae_resident", "source_of_funds": "salary",
