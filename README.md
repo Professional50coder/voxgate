@@ -1,8 +1,95 @@
 # VoxGate
 
+[![CI](https://github.com/Professional50coder/voxgate/actions/workflows/ci.yml/badge.svg)](https://github.com/Professional50coder/voxgate/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.12%2B-3776AB)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688)
+![LangGraph](https://img.shields.io/badge/LangGraph-state%20machine-1C3C3C)
+![Postgres](https://img.shields.io/badge/Postgres-checkpoints-4169E1)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 **Voice interviews for regulated intake. The agent holds the conversation, the questions stay exactly as approved, and a person makes the call with a full record of why.**
 
-### Live
+Regulated intake (KYC, patient, loan, claims) runs on scripts and typed notes. A free-form voice bot fixes the typing but rewords the approved questions and leaves no decision trail. VoxGate keeps the questions verbatim from a reviewed pack, lets AI handle only the conversation around them, scores the result with an additive scorecard where every point has a reason, and stops risky cases at a named human reviewer.
+
+## What a call produces
+
+A KYC applicant whose name, date of birth and nationality resemble a (synthetic) sanctions entry. The input is six captured fields; the output is checks, an explained score and a parked case. This is real output from the quickstart below.
+
+```text
+input   full_name=Muhammad Al-Rashid  dob=1975-03-02  nationality=SY  residency=non_resident
+        source_of_funds=crypto_trading  product=derivatives
+
+checks  sanctions      hit      1.000
+        pep            clear    0.561
+        adverse_media  clear    0.000
+
+score   probability=0.9928  band=high
+        sanctions_similarity   +3.0000
+        fatf_nationality_risk  +2.2000
+        source_of_funds_risk   +1.0500
+        pep_similarity         +1.0096
+        non_resident           +0.6000
+        product_risk           +0.5600
+
+status  awaiting_review  -> parked for the Compliance Officer; nothing auto-rejects
+```
+
+A clean applicant (Priya Raghavan, IN, salary, spot trading) scores probability 0.2774, band low, and is auto-approved. Sensitive input is handled by rules with no model: asking the extract endpoint to record "my card number is 4111 1111 1111 1111" returns no value, `intent: sensitive`, a reply telling the caller not to share card numbers, and a re-ask of the passport question.
+
+## Quickstart (no API keys, no database, no Docker)
+
+Needs Python 3.12+ and [uv](https://docs.astral.sh/uv/getting-started/installation/). Without keys the system uses its offline rules, keyword extraction and in-memory storage.
+
+```sh
+git clone https://github.com/Professional50coder/voxgate && cd voxgate
+uv sync
+uv run uvicorn voxgate.service.app:app --port 8000          # terminal 1
+uv run python scripts/demo_case.py --risky                  # terminal 2: parks for review, asks for your decision
+uv run python scripts/demo_case.py                          # clean applicant, auto-approves
+```
+
+Or with curl:
+
+```sh
+curl -s localhost:8000/health/ready
+curl -s -XPOST localhost:8000/cases -H 'content-type: application/json' -d '{"pack_id":"kyc-uae"}'      # returns case_id
+curl -s -XPOST localhost:8000/cases/$CASE_ID/interview-result -H 'content-type: application/json' \
+  -d '{"fields":{"full_name":"Muhammad Al-Rashid","dob":"1975-03-02","nationality":"SY","residency_status":"non_resident","source_of_funds":"crypto_trading","product":"derivatives"},"confidence":{}}'
+curl -s -XPOST localhost:8000/cases/$CASE_ID/decision -H 'content-type: application/json' -d '{"action":"reject","note":"sanctions hit"}'
+curl -s -XPOST localhost:8000/packs/kyc-uae/extract -H 'content-type: application/json' -d '{"field":"nationality","spoken":"my card number is 4111 1111 1111 1111"}'
+```
+
+`scripts/demo_case.py` reads `VOXGATE_BASE` if the API is not on port 8000. Optional keys (Groq, Cartesia), Postgres and the web app are covered under [Configuration](#configuration-and-the-voice-worker). With `VOXGATE_API_KEYS` unset the operator endpoints are open, which is fine for a demo only.
+
+## Measured results
+
+Produced by running this repository (Python 3.14, Windows, no API keys, in-memory storage), not estimated.
+
+| What | Result | Reproduce |
+|---|---|---|
+| Automated tests | 370 passed, 66 skipped, 0 failed (173 s) | `uv run pytest -q` |
+| Why 66 skip | 57 need a Postgres (`VOXGATE_TEST_DB`), 7 need a Groq key, 2 need the `voice` extra. Not exercised in this run | `uv run pytest -q -rs` |
+| Line coverage | 73% of 3,518 statements across `src/voxgate` and `packs` | `uv run --with pytest-cov pytest -q --cov=src/voxgate --cov=packs` |
+| Coverage by area | Dialogue brain, scorecard, name matching, workflow graph, auth, pack loader: 99 to 100%. Voice worker: 0% (needs the voice extra and audio) | same command |
+| Rules-only turn latency | 0.10 ms for the card-number rule, 0.13 ms for an ordinary answer (`timing_ms.understand`), offline, single request each | the `extract` curl above |
+
+Not measured here, so not claimed: model-based extraction latency, Cartesia time to first audio, site assistant latency, Postgres integration behaviour, and screening accuracy on real data. The `kyc-uae` lists are synthetic (9 sanctions, 5 PEP and 3 adverse-media entries), so the hit above shows the matching mechanics, not detection performance on a real feed.
+
+## The KYC-UAE compliance pack
+
+`packs/kyc_uae` is the reference pack. It demonstrates the mechanics; it is not a licensed screening product.
+
+| Part | What it does |
+|---|---|
+| Questions | Six fields (name, date of birth, nationality, residency, source of funds, product) with fixed wording in `REASK_HINTS` |
+| Validation | Pydantic schema: age 18 to 100, given and family name required, closed value sets for residency, source of funds and product |
+| Checks | Sanctions and PEP name screening (Jaro-Winkler plus token-set similarity, using date of birth and nationality), adverse-media fuzzy match |
+| Scorecard | Seven weighted features plus a bias of -3.5; thresholds low 0.30 and high 0.65 from `pack.yaml` |
+| Routing | Low band with no hit auto-approves; medium re-asks the biggest contributor; high band or any hit goes to the Compliance Officer |
+| Data | Synthetic only. No certification or licence is claimed |
+
+### Live demo
 
 **[voxgate-web.vercel.app](https://voxgate-web.vercel.app)**
 
@@ -17,12 +104,6 @@
 | Agents and their questions | [voxgate-api.vercel.app/packs](https://voxgate-api.vercel.app/packs) |
 | Source | [github.com/Professional50coder/voxgate](https://github.com/Professional50coder/voxgate) |
 
-### At a glance
-
-- **AI runs the conversation, you own the questions.** Regulated questions are read verbatim from a pack. AI handles everything around them.
-- **The output is an outcome, not a transcript.** Each call ends with validated fields, check results and a scored, explained result.
-- **People decide.** The workflow pauses for a named reviewer, survives restarts, and records every decision.
-
 ### Contents
 
 1. [The problem we solve](#the-problem-we-solve)
@@ -35,15 +116,14 @@
 8. [Intelligence and models](#intelligence-and-models)
 9. [Design principles](#design-principles)
 10. [Feature matrix](#feature-matrix)
-11. [Measured performance](#measured-performance)
-12. [Trust, data handling and limits](#trust-data-handling-and-limits)
-13. [Where VoxGate stands in the market](#where-voxgate-stands-in-the-market)
-14. [Tech stack](#tech-stack)
-15. [Repository layout](#repository-layout)
-16. [Running locally](#running-locally)
-17. [Testing](#testing)
-18. [Deploying](#deploying)
-19. [Roadmap](#roadmap)
+11. [Trust, data handling and limits](#trust-data-handling-and-limits)
+12. [Where VoxGate stands in the market](#where-voxgate-stands-in-the-market)
+13. [Tech stack](#tech-stack)
+14. [Repository layout](#repository-layout)
+15. [Configuration and the voice worker](#configuration-and-the-voice-worker)
+16. [Testing](#testing)
+17. [Deploying](#deploying)
+18. [Roadmap](#roadmap)
 
 ---
 
@@ -300,7 +380,7 @@ Each principle is a decision, the reason for it, and what it costs.
 
 *Solves: inconsistent records; the risk of a model inventing an answer.*
 
-- **Decision.** Every caller turn goes through deterministic rules first: the agent's own rules, then shared platform patterns. They run in under 1 ms. A model is used only for turns the rules cannot place, and only to pick from a closed set of labels. Extraction is grounded: it can only use words the caller said, and the schema validates the result.
+- **Decision.** Every caller turn goes through deterministic rules first: the agent's own rules, then shared platform patterns. They are plain string and regex checks with no network call (0.1 ms per turn for the card-number rule in the [measured results](#measured-results)). A model is used only for turns the rules cannot place, and only to pick from a closed set of labels. Extraction is grounded: it can only use words the caller said, and the schema validates the result.
 - **Why.** Sensitive data and off-topic requests must be caught the same way every time, and a caller cannot talk a rule out of being a rule. Grounding turns a bad extraction into a re-ask, never an invented fact.
 - **Trade-off.** Rules need maintaining per pack. They live in `pack.yaml`, so that is a data change, not a code change.
 
@@ -354,19 +434,6 @@ Each principle is a decision, the reason for it, and what it costs.
 
 ---
 
-## Measured performance
-
-| Step | Latency |
-|---|---|
-| Deterministic understanding (rules) | 0.1 to 0.5 ms per turn |
-| Voice, time to first audio (streamed) | ~200 ms |
-| Site assistant reply | ~550 ms |
-| Model-based extraction | ~0.5 to 1 s |
-
-Measured on a development machine. These are not SLAs.
-
----
-
 ## Trust, data handling and limits
 
 What the code does today:
@@ -393,7 +460,7 @@ Limits:
 
 ## Where VoxGate stands in the market
 
-We reviewed 13 voice-AI products: Vapi, Retell, Bland, ElevenLabs, Synthflow, Sierra, PolyAI, Hume, Cartesia, Deepgram, Decagon, Parloa and Cognigy. Most are general-purpose voice agent platforms, customer-service agents or voice infrastructure. VoxGate is narrower on purpose: structured, auditable intake where the outcome of the call is the product.
+Products such as Vapi, Retell, Bland, ElevenLabs, Synthflow, Sierra and PolyAI are mostly general-purpose voice agent platforms, customer-service agents or voice infrastructure. VoxGate is narrower on purpose: structured, auditable intake where the outcome of the call is the product.
 
 | | General voice agent platforms / CX agents | VoxGate |
 |---|---|---|
@@ -447,17 +514,9 @@ tests/                 pytest suite; pack_conformance.py is the contract every p
 docs/                  PRODUCT.md, DEPLOYMENT.md, ROADMAP.md, phases/
 ```
 
-## Running locally
+## Configuration and the voice worker
 
-Requires **Python 3.12+** and [uv](https://docs.astral.sh/uv/getting-started/installation/). No API keys are needed.
-
-```sh
-git clone <repo-url> voxgate && cd voxgate
-uv sync
-uv run uvicorn voxgate.service.app:app --port 8000   # API
-```
-
-Web app:
+The API quickstart is at the top of this page. Web app:
 
 ```sh
 cd apps/web
@@ -493,11 +552,11 @@ A pack is a directory under `packs/<pack_id>/`:
 - `checks.py`: `CHECKS`, functions returning a `CheckResult` (`clear` / `review` / `hit`)
 - `scoring.py`: `build_scorecard(low, high)` and `FEATURE_FIELD_HINTS`
 
-`packs/kyc_uae/` is the reference example. `scripts/generate_packs.py` generates packs from declarative specs, the same shape `/agents` drafts.
+`packs/kyc_uae/` is the reference example (the folder is `kyc_uae`, the pack id is `kyc-uae`). `scripts/generate_packs.py` generates packs from declarative specs, the same shape `/agents` drafts.
 
 ## Testing
 
-368+ automated tests. CI runs them with no API keys and no database, so a fresh clone or fork gets a green build.
+CI runs the suite with no API keys and no database, so a fresh clone or fork gets a green build. See [Measured results](#measured-results) for the count and coverage.
 
 ```sh
 uv run pytest -q
